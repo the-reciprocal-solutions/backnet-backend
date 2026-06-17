@@ -9,6 +9,14 @@ points:
     present_value: 450.0
     units: "partsPerMillion"
     cov_increment: 25.0
+    simulation:
+      model: sine
+      mean: 600.0
+      amplitude: 250.0
+      period_h: 24
+      phase_h: 4.0
+      noise: {sigma: 15.0}
+      bounds: [400.0, 1200.0]
   - object_type: analogValue
     object_instance: 1
     object_name: "CO2-01/CO2Setpoint"
@@ -16,8 +24,15 @@ points:
     present_value: 800.0
     units: "partsPerMillion"
     cov_increment: 25.0
+    simulation:
+      model: constant
+      value: 800.0
   - object_type: binaryValue
     object_instance: 1
     object_name: "CO2-01/HighCO2Alarm"
     description: "High CO2 alarm"
     present_value: false
+    simulation:
+      model: derived
+      sources: {co2: "CO2-01/CO2Level", sp: "CO2-01/CO2Setpoint"}
+      expr: "co2 > sp"

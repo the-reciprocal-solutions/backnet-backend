@@ -9,6 +9,12 @@ points:
     present_value: 24.0
     units: "degreesCelsius"
     cov_increment: 0.3
+    simulation:
+      model: random_walk
+      center: 23.5
+      step: 0.05
+      mean_reversion: 0.05
+      bounds: [18.0, 28.0]
   - object_type: analogOutput
     object_instance: 1
     object_name: "FCU-02/CoolingValve"
@@ -16,6 +22,15 @@ points:
     present_value: 55.0
     units: "percent"
     cov_increment: 1.0
+    simulation:
+      model: pid_actuator
+      process_var: "FCU-02/RoomTemp"
+      setpoint: "FCU-02/RoomTempSetpoint"
+      kp: 10.0
+      ki: 0.08
+      kd: 0.0
+      reverse: true
+      bounds: [0.0, 100.0]
   - object_type: analogOutput
     object_instance: 2
     object_name: "FCU-02/HeatingValve"
@@ -23,6 +38,15 @@ points:
     present_value: 0.0
     units: "percent"
     cov_increment: 1.0
+    simulation:
+      model: pid_actuator
+      process_var: "FCU-02/RoomTemp"
+      setpoint: "FCU-02/RoomTempSetpoint"
+      kp: 10.0
+      ki: 0.08
+      kd: 0.0
+      reverse: false
+      bounds: [0.0, 100.0]
   - object_type: analogOutput
     object_instance: 3
     object_name: "FCU-02/FanSpeed"
@@ -30,6 +54,12 @@ points:
     present_value: 60.0
     units: "percent"
     cov_increment: 1.0
+    simulation:
+      model: random_walk
+      center: 60.0
+      step: 1.0
+      mean_reversion: 0.1
+      bounds: [0.0, 100.0]
   - object_type: analogValue
     object_instance: 1
     object_name: "FCU-02/RoomTempSetpoint"
@@ -37,13 +67,23 @@ points:
     present_value: 23.0
     units: "degreesCelsius"
     cov_increment: 0.5
+    simulation:
+      model: constant
+      value: 23.0
   - object_type: binaryInput
     object_instance: 1
     object_name: "FCU-02/OccupancySensor"
     description: "Room occupancy"
     present_value: true
+    simulation:
+      model: multistate_cycle
+      states: [true, true, false]
+      period_s: 1800
   - object_type: binaryOutput
     object_instance: 1
     object_name: "FCU-02/FanEnable"
     description: "Fan enable command"
     present_value: true
+    simulation:
+      model: constant
+      value: true

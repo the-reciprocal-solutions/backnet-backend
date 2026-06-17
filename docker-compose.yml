@@ -6,4 +6,26 @@ services:
     volumes:
       - ./data:/app/data
       - ./config:/app/config:ro
+      - hf_cache:/root/.cache/huggingface   # persist downloaded Chronos model
     restart: unless-stopped
+    depends_on:
+      - timescaledb
+
+  # Time-series store for device readings + event logs (P1: dual-write).
+  # Published on host port 5544 (5432 is taken by the host's own Postgres).
+  # The host-net app reaches it at localhost:5544.
+  timescaledb:
+    image: timescale/timescaledb:latest-pg16
+    ports:
+      - "5544:5432"
+    environment:
+      POSTGRES_USER: bacnet
+      POSTGRES_PASSWORD: bacnet
+      POSTGRES_DB: bacnet
+    volumes:
+      - tsdb_data:/var/lib/postgresql/data
+    restart: unless-stopped
+
+volumes:
+  tsdb_data:
+  hf_cache:

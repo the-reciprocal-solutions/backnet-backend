@@ -9,6 +9,12 @@ points:
     present_value: 22.5
     units: "degreesCelsius"
     cov_increment: 0.5
+    simulation:
+      model: first_order_lag
+      target_point: "AHU-01/SupplyAirTempSetpoint"
+      tau_s: 120
+      noise: {sigma: 0.1}
+      bounds: [10.0, 35.0]
   - object_type: analogInput
     object_instance: 2
     object_name: "AHU-01/ReturnAirTemp"
@@ -16,6 +22,11 @@ points:
     present_value: 24.0
     units: "degreesCelsius"
     cov_increment: 0.5
+    simulation:
+      model: derived
+      sources: {supply: "AHU-01/SupplyAirTemp"}
+      expr: "supply + 2.0"
+      bounds: [10.0, 40.0]
   - object_type: analogInput
     object_instance: 3
     object_name: "AHU-01/MixedAirTemp"
@@ -23,6 +34,11 @@ points:
     present_value: 20.0
     units: "degreesCelsius"
     cov_increment: 0.5
+    simulation:
+      model: derived
+      sources: {ret: "AHU-01/ReturnAirTemp", oat: "OAT-01/OutdoorTemp"}
+      expr: "0.7*ret + 0.3*oat"
+      bounds: [0.0, 40.0]
   - object_type: analogOutput
     object_instance: 1
     object_name: "AHU-01/CoolingValve"
@@ -30,6 +46,15 @@ points:
     present_value: 45.0
     units: "percent"
     cov_increment: 1.0
+    simulation:
+      model: pid_actuator
+      process_var: "AHU-01/SupplyAirTemp"
+      setpoint: "AHU-01/SupplyAirTempSetpoint"
+      kp: 8.0
+      ki: 0.05
+      kd: 0.0
+      reverse: true
+      bounds: [0.0, 100.0]
   - object_type: analogOutput
     object_instance: 2
     object_name: "AHU-01/HeatingValve"
@@ -37,6 +62,15 @@ points:
     present_value: 0.0
     units: "percent"
     cov_increment: 1.0
+    simulation:
+      model: pid_actuator
+      process_var: "AHU-01/SupplyAirTemp"
+      setpoint: "AHU-01/SupplyAirTempSetpoint"
+      kp: 8.0
+      ki: 0.05
+      kd: 0.0
+      reverse: false
+      bounds: [0.0, 100.0]
   - object_type: analogOutput
     object_instance: 3
     object_name: "AHU-01/FanSpeed"
@@ -44,6 +78,12 @@ points:
     present_value: 75.0
     units: "percent"
     cov_increment: 1.0
+    simulation:
+      model: random_walk
+      center: 75.0
+      step: 1.0
+      mean_reversion: 0.1
+      bounds: [40.0, 100.0]
   - object_type: analogValue
     object_instance: 1
     object_name: "AHU-01/SupplyAirTempSetpoint"
@@ -51,21 +91,34 @@ points:
     present_value: 22.0
     units: "degreesCelsius"
     cov_increment: 0.5
+    simulation:
+      model: constant
+      value: 22.0
   - object_type: binaryInput
     object_instance: 1
     object_name: "AHU-01/FilterDirty"
     description: "Filter dirty alarm"
     present_value: false
+    simulation:
+      model: multistate_cycle
+      states: [false, false, false, false, false, false, false, false, false, true]
+      period_s: 600
   - object_type: binaryOutput
     object_instance: 1
     object_name: "AHU-01/SupplyFanEnable"
     description: "Supply fan enable command"
     present_value: true
+    simulation:
+      model: constant
+      value: true
   - object_type: binaryOutput
     object_instance: 2
     object_name: "AHU-01/ReturnFanEnable"
     description: "Return fan enable command"
     present_value: true
+    simulation:
+      model: constant
+      value: true
   - object_type: analogInput
     object_instance: 4
     object_name: "AHU-01/DuctStaticPressure"
@@ -73,6 +126,12 @@ points:
     present_value: 250.0
     units: "pascals"
     cov_increment: 5.0
+    simulation:
+      model: first_order_lag
+      target_point: "AHU-01/DuctPressureSetpoint"
+      tau_s: 60
+      noise: {sigma: 3.0}
+      bounds: [0.0, 500.0]
   - object_type: analogValue
     object_instance: 2
     object_name: "AHU-01/DuctPressureSetpoint"
@@ -80,3 +139,6 @@ points:
     present_value: 250.0
     units: "pascals"
     cov_increment: 5.0
+    simulation:
+      model: constant
+      value: 250.0

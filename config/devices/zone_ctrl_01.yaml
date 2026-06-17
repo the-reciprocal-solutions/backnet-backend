@@ -9,6 +9,12 @@ points:
     present_value: 22.5
     units: "degreesCelsius"
     cov_increment: 0.3
+    simulation:
+      model: random_walk
+      center: 22.5
+      step: 0.05
+      mean_reversion: 0.05
+      bounds: [18.0, 28.0]
   - object_type: analogInput
     object_instance: 2
     object_name: "ZC-01/AirflowRate"
@@ -16,6 +22,11 @@ points:
     present_value: 500.0
     units: "cubicFeetPerMinute"
     cov_increment: 10.0
+    simulation:
+      model: derived
+      sources: {damper: "ZC-01/DamperPosition", minflow: "ZC-01/MinAirflow"}
+      expr: "minflow + damper * 8.0"
+      bounds: [200.0, 1000.0]
   - object_type: analogOutput
     object_instance: 1
     object_name: "ZC-01/DamperPosition"
@@ -23,6 +34,15 @@ points:
     present_value: 65.0
     units: "percent"
     cov_increment: 1.0
+    simulation:
+      model: pid_actuator
+      process_var: "ZC-01/ZoneTemp"
+      setpoint: "ZC-01/ZoneTempSetpoint"
+      kp: 10.0
+      ki: 0.08
+      kd: 0.0
+      reverse: true
+      bounds: [0.0, 100.0]
   - object_type: analogOutput
     object_instance: 2
     object_name: "ZC-01/ReheatValve"
@@ -30,6 +50,15 @@ points:
     present_value: 0.0
     units: "percent"
     cov_increment: 1.0
+    simulation:
+      model: pid_actuator
+      process_var: "ZC-01/ZoneTemp"
+      setpoint: "ZC-01/ZoneTempSetpoint"
+      kp: 10.0
+      ki: 0.08
+      kd: 0.0
+      reverse: false
+      bounds: [0.0, 100.0]
   - object_type: analogValue
     object_instance: 1
     object_name: "ZC-01/ZoneTempSetpoint"
@@ -37,6 +66,9 @@ points:
     present_value: 22.0
     units: "degreesCelsius"
     cov_increment: 0.5
+    simulation:
+      model: constant
+      value: 22.0
   - object_type: analogValue
     object_instance: 2
     object_name: "ZC-01/MinAirflow"
@@ -44,8 +76,15 @@ points:
     present_value: 200.0
     units: "cubicFeetPerMinute"
     cov_increment: 10.0
+    simulation:
+      model: constant
+      value: 200.0
   - object_type: binaryInput
     object_instance: 1
     object_name: "ZC-01/OccupancySensor"
     description: "Zone occupancy"
     present_value: true
+    simulation:
+      model: multistate_cycle
+      states: [true, true, true, false]
+      period_s: 1800

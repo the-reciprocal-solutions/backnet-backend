@@ -1,0 +1,35 @@
+# Real-time simulation engine configuration.
+# All values overridable via BACNET_LAB_SIM_* environment variables.
+#
+# Per-point signal models live in config/devices/*.yaml under each point's
+# `simulation:` block. Points without one get a sensible default model chosen
+# from object type + units (see SimulationEngine._default_model).
+#
+# Available models (P0): constant, sine, random_walk, gaussian_noise,
+#   multistate_cycle.  (P1 adds: first_order_lag, pid_actuator, ramp, step,
+#   derived.)
+#
+# Example per-point block:
+#   - object_type: analogInput
+#     object_name: "AHU-01/SupplyAirTemp"
+#     present_value: 22.5
+#     units: degreesCelsius
+#     simulation:
+#       model: sine
+#       mean: 22.5
+#       amplitude: 3.0
+#       period_h: 24
+#       noise: { type: gaussian, sigma: 0.2 }
+#       bounds: [10, 40]
+
+enabled: true
+autostart: true
+tick_hz: 1.0
+speed: 1.0
+seed: null
+noise_level: 1.0
+world_enabled: false
+weather: temperate
+occupancy: office
+faults_enabled: false
+fault_rate: 0.0

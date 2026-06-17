@@ -23,15 +23,18 @@ class BasicAuthMiddleware(BaseHTTPMiddleware):
         if auth and auth.startswith("Basic "):
             import base64
 
+            authed = False
             try:
                 decoded = base64.b64decode(auth[6:]).decode("utf-8")
                 provided_user, provided_pass = decoded.split(":", 1)
                 user_ok = secrets.compare_digest(provided_user, self._username)
                 pass_ok = secrets.compare_digest(provided_pass, self._password)
-                if user_ok and pass_ok:
-                    return await call_next(request)
+                authed = user_ok and pass_ok
             except Exception:
-                pass
+                authed = False
+
+            if authed:
+                return await call_next(request)
 
         return Response(
             status_code=401,

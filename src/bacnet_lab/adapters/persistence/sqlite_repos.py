@@ -11,12 +11,14 @@ from bacnet_lab.domain.enums import (
     EventType,
     PointType,
 )
+from bacnet_lab.domain.models.asset import Asset
 from bacnet_lab.domain.models.device import Device, Point
 from bacnet_lab.domain.models.endpoint import OutboundEndpoint
 from bacnet_lab.domain.models.event import Alarm, ReplicationEvent
 from bacnet_lab.domain.value_objects import DeviceAddress
 from bacnet_lab.ports.repositories import (
     AlarmRepositoryPort,
+    AssetRepositoryPort,
     DeviceRepositoryPort,
     EndpointRepositoryPort,
     EventLogRepositoryPort,
@@ -316,4 +318,71 @@ class SqliteAlarmRepository(AlarmRepositoryPort):
             message=row["message"],
             raised_at=datetime.fromisoformat(row["raised_at"]),
             cleared_at=datetime.fromisoformat(row["cleared_at"]) if row["cleared_at"] else None,
+        )
+
+
+class SqliteAssetRepository(AssetRepositoryPort):
+    def __init__(self, db_path: str) -> None:
+        self._db_path = db_path
+
+    async def save(self, asset: Asset) -> None:
+        async with aiosqlite.connect(self._db_path) as db:
+            await db.execute(
+                "INSERT OR REPLACE INTO assets "
+                "(id, name, asset_class, device_id, make, model, serial, "
+                "install_date, criticality, location, parent_id, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    asset.id,
+                    asset.name,
+                    asset.asset_class,
+                    asset.device_id,
+                    asset.make,
+                    asset.model,
+                    asset.serial,
+                    asset.install_date,
+                    asset.criticality,
+                    asset.location,
+                    asset.parent_id,
+                    asset.created_at,
+                ),
+            )
+            await db.commit()
+
+    async def get(self, asset_id: str) -> Asset | None:
+        async with aiosqlite.connect(self._db_path) as db:
+            db.row_factory = aiosqlite.Row
+            cursor = await db.execute("SELECT * FROM assets WHERE id = ?", (asset_id,))
+            row = await cursor.fetchone()
+            if not row:
+                return None
+            return self._row_to_asset(row)
+
+    async def get_all(self) -> list[Asset]:
+        async with aiosqlite.connect(self._db_path) as db:
+            db.row_factory = aiosqlite.Row
+            cursor = await db.execute("SELECT * FROM assets ORDER BY created_at")
+            rows = await cursor.fetchall()
+            return [self._row_to_asset(r) for r in rows]
+
+    async def delete(self, asset_id: str) -> None:
+        async with aiosqlite.connect(self._db_path) as db:
+            await db.execute("DELETE FROM assets WHERE id = ?", (asset_id,))
+            await db.commit()
+
+    @staticmethod
+    def _row_to_asset(row: aiosqlite.Row) -> Asset:
+        return Asset(
+            id=row["id"],
+            name=row["name"],
+            asset_class=row["asset_class"],
+            device_id=row["device_id"],
+            make=row["make"] or "",
+            model=row["model"] or "",
+            serial=row["serial"] or "",
+            install_date=row["install_date"],
+            criticality=row["criticality"],
+            location=row["location"] or "",
+            parent_id=row["parent_id"],
+            created_at=row["created_at"] or "",
         )

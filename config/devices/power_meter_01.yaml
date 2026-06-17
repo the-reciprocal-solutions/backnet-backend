@@ -1,0 +1,144 @@
+device_id: 6001
+name: "PM-01"
+description: "3-Phase Power/Energy Meter - Main Switchboard"
+points:
+  - object_type: analogInput
+    object_instance: 1
+    object_name: "PM-01/ActivePower"
+    description: "Total active power"
+    present_value: 45.0
+    units: "kilowatts"
+    cov_increment: 1.0
+    simulation:
+      model: sine
+      mean: 50.0
+      amplitude: 25.0
+      period_h: 24
+      phase_h: 6.0
+      noise: {sigma: 2.0}
+      bounds: [0.0, 150.0]
+  - object_type: analogInput
+    object_instance: 2
+    object_name: "PM-01/ApparentPower"
+    description: "Total apparent power"
+    present_value: 49.0
+    units: "kilovoltAmperes"
+    cov_increment: 1.0
+    simulation:
+      model: derived
+      sources: {p: "PM-01/ActivePower", pf: "PM-01/PowerFactor"}
+      expr: "p / pf"
+      bounds: [0.0, 180.0]
+  - object_type: analogInput
+    object_instance: 3
+    object_name: "PM-01/PowerFactor"
+    description: "Power factor"
+    present_value: 0.92
+    units: "noUnits"
+    cov_increment: 0.01
+    simulation:
+      model: random_walk
+      center: 0.92
+      step: 0.005
+      mean_reversion: 0.1
+      bounds: [0.8, 1.0]
+  - object_type: analogInput
+    object_instance: 4
+    object_name: "PM-01/VoltageL1"
+    description: "Phase L1 voltage"
+    present_value: 230.0
+    units: "volts"
+    cov_increment: 1.0
+    simulation:
+      model: random_walk
+      center: 230.0
+      step: 0.5
+      mean_reversion: 0.1
+      bounds: [215.0, 245.0]
+  - object_type: analogInput
+    object_instance: 5
+    object_name: "PM-01/VoltageL2"
+    description: "Phase L2 voltage"
+    present_value: 230.0
+    units: "volts"
+    cov_increment: 1.0
+    simulation:
+      model: random_walk
+      center: 230.0
+      step: 0.5
+      mean_reversion: 0.1
+      bounds: [215.0, 245.0]
+  - object_type: analogInput
+    object_instance: 6
+    object_name: "PM-01/VoltageL3"
+    description: "Phase L3 voltage"
+    present_value: 230.0
+    units: "volts"
+    cov_increment: 1.0
+    simulation:
+      model: random_walk
+      center: 230.0
+      step: 0.5
+      mean_reversion: 0.1
+      bounds: [215.0, 245.0]
+  - object_type: analogInput
+    object_instance: 7
+    object_name: "PM-01/CurrentL1"
+    description: "Phase L1 current"
+    present_value: 65.0
+    units: "amperes"
+    cov_increment: 1.0
+    simulation:
+      model: derived
+      sources: {p: "PM-01/ActivePower", v: "PM-01/VoltageL1", pf: "PM-01/PowerFactor"}
+      expr: "(p * 1000.0) / (3.0 * v * pf)"
+      bounds: [0.0, 250.0]
+  - object_type: analogInput
+    object_instance: 8
+    object_name: "PM-01/CurrentL2"
+    description: "Phase L2 current"
+    present_value: 65.0
+    units: "amperes"
+    cov_increment: 1.0
+    simulation:
+      model: derived
+      sources: {p: "PM-01/ActivePower", v: "PM-01/VoltageL2", pf: "PM-01/PowerFactor"}
+      expr: "(p * 1000.0) / (3.0 * v * pf)"
+      bounds: [0.0, 250.0]
+  - object_type: analogInput
+    object_instance: 9
+    object_name: "PM-01/CurrentL3"
+    description: "Phase L3 current"
+    present_value: 65.0
+    units: "amperes"
+    cov_increment: 1.0
+    simulation:
+      model: derived
+      sources: {p: "PM-01/ActivePower", v: "PM-01/VoltageL3", pf: "PM-01/PowerFactor"}
+      expr: "(p * 1000.0) / (3.0 * v * pf)"
+      bounds: [0.0, 250.0]
+  - object_type: analogInput
+    object_instance: 10
+    object_name: "PM-01/Frequency"
+    description: "Line frequency"
+    present_value: 50.0
+    units: "hertz"
+    cov_increment: 0.01
+    simulation:
+      model: random_walk
+      center: 50.0
+      step: 0.01
+      mean_reversion: 0.2
+      bounds: [49.8, 50.2]
+  - object_type: analogInput
+    object_instance: 11
+    object_name: "PM-01/EnergyTotal"
+    description: "Cumulative active energy"
+    present_value: 125000.0
+    units: "kilowattHours"
+    cov_increment: 1.0
+    simulation:
+      model: ramp
+      target: 10000000.0
+      rate: 0.0125
+      hold: false

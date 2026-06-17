@@ -15,6 +15,7 @@ class Point:
     present_value: PointValue = 0.0
     units: str = ""
     cov_increment: float = 0.0
+    simulation: dict | None = None  # per-point signal model config (P0)
 
     @property
     def object_identifier(self) -> str:

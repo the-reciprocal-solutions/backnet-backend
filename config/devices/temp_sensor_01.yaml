@@ -9,6 +9,14 @@ points:
     present_value: 15.0
     units: "degreesCelsius"
     cov_increment: 0.5
+    simulation:
+      model: sine
+      mean: 18.0
+      amplitude: 8.0
+      period_h: 24
+      phase_h: -3.0
+      noise: {sigma: 0.2}
+      bounds: [-5.0, 40.0]
   - object_type: analogInput
     object_instance: 2
     object_name: "OAT-01/OutdoorHumidity"
@@ -16,3 +24,11 @@ points:
     present_value: 60.0
     units: "percentRelativeHumidity"
     cov_increment: 2.0
+    simulation:
+      model: sine
+      mean: 60.0
+      amplitude: 15.0
+      period_h: 24
+      phase_h: 9.0
+      noise: {sigma: 1.0}
+      bounds: [20.0, 100.0]

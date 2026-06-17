@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 
+from bacnet_lab.domain.models.asset import Asset
 from bacnet_lab.domain.models.device import Device
 from bacnet_lab.domain.models.endpoint import OutboundEndpoint
 from bacnet_lab.domain.models.event import Alarm, ReplicationEvent
@@ -54,6 +55,20 @@ class EventLogRepositoryPort(ABC):
 
     @abstractmethod
     async def mark_delivered(self, event_id: str) -> None: ...
+
+
+class AssetRepositoryPort(ABC):
+    @abstractmethod
+    async def save(self, asset: Asset) -> None: ...
+
+    @abstractmethod
+    async def get(self, asset_id: str) -> Asset | None: ...
+
+    @abstractmethod
+    async def get_all(self) -> list[Asset]: ...
+
+    @abstractmethod
+    async def delete(self, asset_id: str) -> None: ...
 
 
 class AlarmRepositoryPort(ABC):

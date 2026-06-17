@@ -9,6 +9,11 @@ points:
     present_value: 22.0
     units: "degreesCelsius"
     cov_increment: 0.2
+    simulation:
+      model: derived
+      sources: {oat: "OAT-01/OutdoorTemp"}
+      expr: "22.0 + 0.08*(oat - 18.0)"
+      bounds: [18.0, 28.0]
   - object_type: analogInput
     object_instance: 2
     object_name: "TSTAT-01/SpaceHumidity"
@@ -16,6 +21,12 @@ points:
     present_value: 45.0
     units: "percentRelativeHumidity"
     cov_increment: 1.0
+    simulation:
+      model: random_walk
+      center: 45.0
+      step: 0.3
+      mean_reversion: 0.05
+      bounds: [30.0, 65.0]
   - object_type: analogValue
     object_instance: 1
     object_name: "TSTAT-01/CoolingSetpoint"
@@ -23,6 +34,9 @@ points:
     present_value: 24.0
     units: "degreesCelsius"
     cov_increment: 0.5
+    simulation:
+      model: constant
+      value: 24.0
   - object_type: analogValue
     object_instance: 2
     object_name: "TSTAT-01/HeatingSetpoint"
@@ -30,13 +44,23 @@ points:
     present_value: 21.0
     units: "degreesCelsius"
     cov_increment: 0.5
+    simulation:
+      model: constant
+      value: 21.0
   - object_type: multiStateValue
     object_instance: 1
     object_name: "TSTAT-01/Mode"
     description: "Operating mode (1=Off, 2=Cool, 3=Heat, 4=Auto)"
     present_value: 4
+    simulation:
+      model: constant
+      value: 4
   - object_type: binaryInput
     object_instance: 1
     object_name: "TSTAT-01/Occupancy"
     description: "Space occupancy"
     present_value: true
+    simulation:
+      model: multistate_cycle
+      states: [true, true, true, false]
+      period_s: 1800

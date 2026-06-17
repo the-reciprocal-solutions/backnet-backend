@@ -1,154 +1,187 @@
 # BACnet Network Simulator
 
-**Open-source BACnet/IP simulator** with 7 virtual HVAC devices, a REST API, real-time web dashboard, and Docker Compose deployment. No physical hardware required.
+**Open-source BACnet/IP simulator with a real-time data engine, a TimescaleDB historian, and zero-shot forecasting.** 8 virtual HVAC + power devices, REST/SSE API, web dashboard, and a one-command Docker stack. No physical hardware.
 
-Built for developers building BMS integrations, SCADA connectors, or building analytics platforms who need a realistic BACnet test network running in seconds.
+Built for developers building BMS integrations, SCADA connectors, building analytics, or ML on building data who need a realistic, *moving* BACnet network — and a time-series + forecasting pipeline — running in seconds.
 
-## Why BACnet Lab?
+---
 
-Testing BACnet integrations typically requires expensive physical hardware and complex network setups. BACnet Lab gives you a fully functional BACnet/IP network on your development machine:
+## Why
 
-- **Instant setup** — `docker compose up` and you have 7 BACnet devices with ~50 points
-- **Realistic behavior** — dynamic HVAC scenarios simulate temperature variations, alarm conditions, and device failures
-- **API-first** — REST API for programmatic control, perfect for CI/CD pipelines and automated testing
-- **Event-driven** — HMAC-signed webhooks push real-time events to your systems
-- **Observable** — web dashboard shows live device state, events, and alarms
+Testing BACnet integrations usually means expensive hardware and static demo data. This simulator gives you a fully functional BACnet/IP network on your dev machine that **behaves**:
+
+- **Live by default** — every point moves on boot from per-point signal models (no manual start).
+- **Physically correlated** — a coupled world model links occupancy → CO₂ → zone temp ↔ HVAC actuators.
+- **Persisted** — every reading is sampled on a regular grid into **TimescaleDB** with 1m/15m/1h rollups.
+- **Predictive** — **Chronos** zero-shot forecasts (p10/p50/p90) per point, served over REST.
+- **Observable** — web dashboard, SSE live stream, Prometheus `/metrics`, HMAC webhooks.
+
+---
 
 ## Features
 
 | Feature | Description |
 |---------|-------------|
-| **7 Virtual BACnet/IP Devices** | AHU, 2 FCUs, thermostat, zone controller, outdoor temp sensor, CO2 sensor |
-| **~50 BACnet Points** | Analog inputs/outputs/values, binary I/O, multi-state values |
-| **REST API** | Full CRUD for devices, scenarios, webhook endpoints, events |
-| **Web Dashboard** | Real-time monitoring with HTMX auto-refresh (zero JS build) |
-| **4 Simulation Scenarios** | HVAC day/night cycle, alarm simulation, device offline, manual override |
-| **Webhook Events** | HMAC-SHA256 signed delivery to external systems |
-| **Docker Compose** | One-command deployment on Linux with `network_mode: host` |
-| **SQLite Persistence** | Zero-configuration database |
-| **HTTP Basic Auth** | Optional authentication via environment variables |
+| **8 Virtual BACnet/IP Devices** | AHU, 2 FCUs, thermostat, zone controller, outdoor temp & CO₂ sensors, 3-phase power meter |
+| **~55 BACnet Points** | Analog in/out/value, binary I/O, multi-state |
+| **Real-time simulation engine** | Always-on, env-configurable signal models: `sine`, `random_walk`, `pid_actuator`, `first_order_lag`, `derived`, `step`, `multistate_cycle`, … |
+| **Coupled world physics** | Outdoor temp + occupancy + valves drive zone temp/CO₂/humidity |
+| **TimescaleDB historian** | Regular-grid sampling + continuous aggregates + retention/compression |
+| **Chronos forecasting** | Zero-shot probabilistic forecasts; naive fallback when torch absent |
+| **REST + SSE API** | Devices, scenarios, webhooks, events, simulation control, live stream, history, forecast |
+| **Web Dashboard** | HTMX auto-refresh, zero JS build |
+| **Fault injection + scaling** | Inject stuck/spike/drift/offline; replicate to N devices via one env var |
+| **Docker Compose** | Simulator + TimescaleDB, one command, `network_mode: host` |
+| **HTTP Basic Auth** | Optional, via environment variables |
+
+---
 
 ## Quick Start
 
-### Docker (recommended)
-
 ```bash
-git clone https://github.com/YOUR_USERNAME/bacnet-lab.git
-cd bacnet-lab
-docker compose up -d --build
+git clone <repo-url> bacnet-simulator
+cd bacnet-simulator
+cp .env.example .env          # set your auth password
+docker compose up -d --build  # starts the simulator + TimescaleDB
 ```
 
-Open http://localhost:8080/ui for the web dashboard.
-
-> **Note:** `network_mode: host` is required for BACnet UDP broadcast and only works on Linux. For macOS/Windows development, see the [Getting Started guide](docs/getting-started.md#docker-macoswindows).
-
-### Local Development
+Wait ~20s for TimescaleDB on first boot, then:
 
 ```bash
-pip install -e ".[dev]"
-python -m bacnet_lab
+curl -u admin:admin123 http://localhost:8080/api/health
+# {"status":"ok","version":"0.1.0","devices_count":8,"active_scenarios":0}
 ```
 
-See the full [Getting Started guide](docs/getting-started.md) for detailed instructions.
+- **Dashboard:** http://localhost:8080/ui (login from `.env`)
+- **Live values:** `GET /api/simulation/snapshot` · **stream:** `GET /api/simulation/stream` (SSE)
+- **History:** `GET /api/history/AHU-01/SupplyAirTemp?res=1m`
+- **Forecast:** `GET /api/forecast/AHU-01/SupplyAirTemp?horizon=6`
+
+> `network_mode: host` (BACnet UDP broadcast) is Linux-only. TimescaleDB is published on host port **5544** (5432 is usually taken by a host Postgres).
+
+Full walkthrough: **[docs/getting-started.md](docs/getting-started.md)**.
+
+---
 
 ## Simulated Devices
 
 | Device | ID | Points | Description |
 |--------|----|--------|-------------|
-| AHU-01 | 1001 | 12 | Air Handling Unit — supply/return/mixed air temps, valves, fans, pressure |
-| FCU-01 | 2001 | 7 | Fan Coil Unit Zone 1 — room temp, valve, fan speed |
-| FCU-02 | 2002 | 7 | Fan Coil Unit Zone 2 — room temp, valve, fan speed |
-| TSTAT-01 | 3001 | 6 | Thermostat Lobby — temp, setpoints, occupancy |
-| ZC-01 | 4001 | 7 | Zone Controller — damper, airflow, CO2, occupancy |
+| AHU-01 | 1001 | 12 | Air Handling Unit — supply/return/mixed temps, valves, fans, pressure |
+| FCU-01 | 2001 | 7 | Fan Coil Unit Zone 1 — room temp, valve, fan |
+| FCU-02 | 2002 | 7 | Fan Coil Unit Zone 2 |
+| TSTAT-01 | 3001 | 6 | Thermostat — temp, setpoints, occupancy |
+| ZC-01 | 4001 | 7 | Zone Controller — damper, airflow, CO₂, occupancy |
 | OAT-01 | 5001 | 2 | Outdoor Temperature Sensor |
-| CO2-01 | 5002 | 3 | CO2 Sensor |
+| CO2-01 | 5002 | 3 | CO₂ Sensor |
+| PM-01 | 6001 | 11 | 3-phase Power Meter — kW, kVA, V/A per phase, PF, Hz, kWh |
 
-Each device runs on a dedicated UDP port and is fully discoverable on the BACnet network. Device definitions are YAML files in `config/devices/` — easy to add or modify.
+Each device runs on its own UDP port (from 47808) and is BACnet-discoverable. Devices are YAML in `config/devices/`; each point can declare a `simulation:` block selecting its signal model. Set `BACNET_LAB_SIM_DEVICE_COUNT=N` to replicate templates to N independent devices.
 
-See [Devices documentation](docs/devices.md) for full point lists and custom device creation.
+---
 
-## Simulation Scenarios
+## The Data Pipeline
 
-| Scenario | Description |
-|----------|-------------|
-| **HVAC Day/Night Cycle** | Compressed 24h simulation — outdoor temp varies, valves/fans respond, occupancy changes |
-| **Cyclic High Temp Alarm** | Periodically raises and clears a supply air temperature alarm |
-| **Device Offline** | Simulates a device going offline and recovering |
-| **Manual Override** | Overrides a point value for a configurable duration |
+```
+Simulation engine ─▶ DeviceService ─▶ BACnet/IP presentValue ─▶ BACnet clients (BMS/SCADA)
+                          │
+                          ├─▶ Event bus ─▶ HMAC webhooks
+                          └─▶ Historian ─▶ TimescaleDB ─▶ Chronos forecast ─▶ /api/forecast
+                                                       └─▶ /api/history · dashboard · SSE
+```
 
-Start/stop scenarios via the REST API or web dashboard. See [Scenarios documentation](docs/scenarios.md).
+The simulation engine writes through the same path real devices would, so the BACnet wire, events, history, and forecasting all work whether data is simulated or real.
 
-## REST API
+---
+
+## Forecasting
+
+Out of the box the Docker image bakes in CPU **torch + chronos-forecasting**, so `/api/forecast/{point}` returns real `amazon/chronos-bolt-small` predictions. Without torch it falls back to a naive persistence+drift model (same response shape). Verify end-to-end against real DB data:
+
+```bash
+docker compose exec -T bacnet-lab python - < scripts/verify_forecast.py
+# model_ran : amazon/chronos-bolt-small
+# MAE (p50) : 0.023   persistence MAE : 0.067   → beats baseline
+# VERDICT   : PASS
+```
+
+To run lean (naive only): comment out the ML stage in the `Dockerfile` and rebuild.
+
+---
+
+## REST API (summary)
 
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/api/health` | Health check |
-| GET | `/api/devices` | List all devices |
-| GET | `/api/devices/{id}` | Device details with points |
+| GET | `/api/devices` · `/api/devices/{id}` | List / device detail |
 | PUT | `/api/devices/{id}/points` | Write a point value |
-| GET | `/api/scenarios` | List scenarios |
-| POST | `/api/scenarios/{id}/start` | Start a scenario |
-| POST | `/api/scenarios/{id}/stop` | Stop a scenario |
-| GET | `/api/endpoints` | List webhook endpoints |
-| POST | `/api/endpoints` | Create webhook endpoint |
-| DELETE | `/api/endpoints/{id}` | Delete endpoint |
-| POST | `/api/endpoints/{id}/test` | Test webhook delivery |
-| GET | `/api/events` | Recent events |
-| GET | `/api/alarms` | Recent alarms |
+| GET/POST | `/api/scenarios` · `/api/scenarios/{id}/start\|stop` | Scenarios |
+| GET | `/api/simulation/status\|generators\|snapshot` | Engine introspection |
+| GET | `/api/simulation/stream` | **SSE** live snapshot stream |
+| POST | `/api/simulation/start\|stop` · `/faults` | Engine + fault control |
+| GET | `/api/history/{point}` · `/api/history/devices/latest` | TimescaleDB history + pivot |
+| GET | `/api/forecast/{point}` · `/api/forecast/info` | Forecasts |
+| GET/POST/DELETE | `/api/endpoints…` | Webhook endpoints |
+| GET | `/api/events` · `/api/alarms` | Event + alarm log |
+| GET | `/metrics` | Prometheus metrics |
 
-See the full [API Reference](docs/api.md) for request/response examples.
+Full reference: **[docs/api.md](docs/api.md)**.
 
-## Use Cases
+---
 
-- **BMS integration testing** — validate your Building Management System against realistic BACnet devices
-- **SCADA development** — build and test SCADA connectors without physical hardware
-- **BACnet client testing** — verify your BACnet client handles discovery, reads, writes, and COV correctly
-- **Building analytics prototyping** — develop analytics on realistic HVAC data streams
-- **CI/CD pipelines** — spin up a BACnet network in your test environment
-- **Training and demos** — demonstrate HVAC automation behavior without physical equipment
-- **Webhook integration testing** — verify your event handlers with real BACnet events
+## Configuration
 
-## Architecture
+Everything is env-driven (see `.env.example`). Highlights:
 
-Hexagonal architecture (ports & adapters) for clean testability and extensibility:
+| Var | Default | Purpose |
+|-----|---------|---------|
+| `BACNET_LAB_SIM_AUTOSTART` | true | run the engine from boot |
+| `BACNET_LAB_SIM_SPEED` | 60 | sim-time acceleration (60 = 24h in 24min; 1 = real-time) |
+| `BACNET_LAB_SIM_WORLD_ENABLED` | true | coupled building physics |
+| `BACNET_LAB_SIM_DEVICE_COUNT` | 0 | replicate templates to N devices |
+| `BACNET_LAB_SIM_FAULTS_ENABLED` | false | random fault injection |
+| `BACNET_LAB_TSDB_ENABLED` | true | dual-write history to TimescaleDB |
+| `BACNET_LAB_TSDB_SAMPLE_INTERVAL_S` | 5 | regular-grid sampling period |
+| `BACNET_LAB_AUTH_USERNAME/PASSWORD` | admin / change-me | HTTP Basic Auth |
 
+---
+
+## Local Development
+
+```bash
+pip install -e ".[dev]"             # core
+pip install -r requirements-ml.txt  # optional: real Chronos
+export BACNET_LAB_TSDB_DSN=postgres://bacnet:bacnet@localhost:5432/bacnet
+python -m bacnet_lab
 ```
-Domain (models, events, enums)
-    |
-Ports (abstract interfaces)
-    |
-Application Services (use cases)
-    |
-Adapters (BACnet/BAC0, HTTP/FastAPI, SQLite, Webhooks)
-```
 
-See [Architecture documentation](docs/architecture.md) for details.
+---
 
 ## Tech Stack
 
-- **Python 3.11+** with async/await throughout
-- **BAC0** (BACpypes3) — BACnet/IP protocol stack
-- **FastAPI** + Uvicorn — REST API
-- **HTMX** + Jinja2 + Pico CSS — web dashboard (zero JS build)
-- **SQLite** via aiosqlite — persistence
-- **httpx** — async webhook delivery
+- **Python 3.11+**, async throughout
+- **BAC0 / BACpypes3** — BACnet/IP stack
+- **FastAPI** + Uvicorn — REST + SSE
+- **TimescaleDB** (asyncpg) — time-series historian; **SQLite** — metadata/events
+- **Chronos** (`chronos-forecasting` + torch) — zero-shot forecasting
+- **HTMX** + Jinja2 + Pico CSS — dashboard
+
+Hexagonal architecture (domain → ports → application → adapters). See **[docs/architecture.md](docs/architecture.md)**.
+
+---
 
 ## Documentation
 
 | Document | Description |
 |----------|-------------|
-| [Getting Started](docs/getting-started.md) | Installation, deployment, first steps |
-| [Devices](docs/devices.md) | Simulated devices, points, custom device creation |
-| [Scenarios](docs/scenarios.md) | Simulation scenarios and parameters |
-| [API Reference](docs/api.md) | REST API with request/response examples |
-| [Webhooks](docs/webhooks.md) | Event delivery, signatures, payload examples |
-| [Configuration](docs/configuration.md) | Settings, environment variables, authentication |
-| [Architecture](docs/architecture.md) | Project structure and design decisions |
+| [Getting Started](docs/getting-started.md) | Setup, start, history, forecasting, troubleshooting |
+| [API Reference](docs/api.md) | REST/SSE/metrics/history/forecast with examples |
+| [Architecture](docs/architecture.md) | Design, diagrams, simulation engine + TimescaleDB → Chronos pipeline |
 
-## Contributing
-
-Contributions are welcome. Please open an issue to discuss your idea before submitting a PR.
+---
 
 ## License
 
-MIT
+MIT — see [LICENSE](LICENSE).
+# backnet-backend

@@ -3,9 +3,23 @@ from __future__ import annotations
 from pathlib import Path
 
 from fastapi import FastAPI
+from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
-from bacnet_lab.adapters.http.routers import devices, endpoints, events, health, scenarios
+from bacnet_lab.adapters.http.routers import (
+    assets,
+    copilot,
+    devices,
+    endpoints,
+    events,
+    forecast,
+    health,
+    history,
+    metrics,
+    predictions,
+    scenarios,
+    simulation,
+)
 
 
 def create_app(auth_username: str = "", auth_password: str = "") -> FastAPI:
@@ -16,11 +30,22 @@ def create_app(auth_username: str = "", auth_password: str = "") -> FastAPI:
 
         app.add_middleware(BasicAuthMiddleware, username=auth_username, password=auth_password)
 
+    @app.get("/", include_in_schema=False)
+    async def root() -> RedirectResponse:
+        return RedirectResponse(url="/ui")
+
     app.include_router(health.router)
     app.include_router(devices.router)
     app.include_router(scenarios.router)
     app.include_router(endpoints.router)
     app.include_router(events.router)
+    app.include_router(simulation.router)
+    app.include_router(history.router)
+    app.include_router(forecast.router)
+    app.include_router(copilot.router)
+    app.include_router(metrics.router)
+    app.include_router(assets.router)
+    app.include_router(predictions.router)
 
     # Web UI
     from bacnet_lab.adapters.web.router import router as web_router

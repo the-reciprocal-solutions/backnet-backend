@@ -1,0 +1,5 @@
+# Real Chronos zero-shot forecasting. Baked into the image via the ML stage in
+# the Dockerfile. Without these the forecast API uses the built-in naive model.
+# torch is installed from the CPU wheel index in the Dockerfile to keep the
+# image small (no CUDA).
+chronos-forecasting>=2.2.2

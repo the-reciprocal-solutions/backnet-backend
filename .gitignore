@@ -15,3 +15,6 @@ venv/
 .mypy_cache/
 htmlcov/
 .coverage
+chronos-model/
+*.safetensors
+.claude

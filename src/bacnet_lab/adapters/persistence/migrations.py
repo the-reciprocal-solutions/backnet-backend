@@ -61,6 +61,22 @@ TABLES = [
     )
     """,
     """
+    CREATE TABLE IF NOT EXISTS assets (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        asset_class TEXT NOT NULL,
+        device_id INTEGER,
+        make TEXT DEFAULT '',
+        model TEXT DEFAULT '',
+        serial TEXT DEFAULT '',
+        install_date TEXT,
+        criticality INTEGER DEFAULT 3,
+        location TEXT DEFAULT '',
+        parent_id TEXT,
+        created_at TEXT
+    )
+    """,
+    """
     CREATE TABLE IF NOT EXISTS telemetry (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         timestamp TEXT NOT NULL,

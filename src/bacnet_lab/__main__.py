@@ -27,6 +27,21 @@ async def main() -> None:
 
     await container.telemetry_service.start()
 
+    if settings.simulation.enabled and settings.simulation.autostart:
+        await container.simulation_engine.start()
+        logger.info("Real-time simulation engine autostarted")
+
+    await container.historian_service.start()
+
+    if settings.timescale.enabled:
+        await container.forecast_service.start()
+        logger.info("Forecast service started")
+        await container.forecast_scheduler.start()
+
+    await container.copilot_service.start()
+    if settings.llm.enabled:
+        logger.info("Copilot service started (LLM model=%s)", settings.llm.model)
+
     app = create_app(
         auth_username=settings.auth.username,
         auth_password=settings.auth.password,
@@ -56,6 +71,11 @@ async def main() -> None:
 async def shutdown(server: uvicorn.Server, container: object) -> None:
     logger.info("Shutting down...")
     server.should_exit = True
+    await container.copilot_service.stop()
+    await container.forecast_scheduler.stop()
+    await container.forecast_service.stop()
+    await container.historian_service.stop()
+    await container.simulation_engine.stop()
     await container.telemetry_service.stop()
     await container.device_service.shutdown()
 
