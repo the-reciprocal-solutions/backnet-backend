@@ -52,6 +52,7 @@ dependencies = [
     "pydantic>=2.9.0",
     "pydantic-settings>=2.6.0",
     "python-multipart>=0.0.12",
+    "pymodbus>=3.8.0",
 ]
 
 [project.optional-dependencies]

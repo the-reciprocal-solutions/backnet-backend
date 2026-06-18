@@ -19,6 +19,14 @@ class BacnetSettings:
 
 
 @dataclass
+class ModbusSettings:
+    host: str = "localhost"
+    port: int = 5020
+    unit_start: int = 1
+    unit_end: int = 10
+
+
+@dataclass
 class AuthSettings:
     username: str = ""
     password: str = ""
@@ -83,6 +91,7 @@ class LLMSettings:
 class AppSettings:
     http: HttpSettings = field(default_factory=HttpSettings)
     bacnet: BacnetSettings = field(default_factory=BacnetSettings)
+    modbus: ModbusSettings = field(default_factory=ModbusSettings) # <--- ADD THIS LINE
     auth: AuthSettings = field(default_factory=AuthSettings)
     simulation: SimulationSettings = field(default_factory=SimulationSettings)
     timescale: TimescaleSettings = field(default_factory=TimescaleSettings)
@@ -103,6 +112,8 @@ def load_settings(config_path: str = "config/settings.yaml") -> AppSettings:
             settings.http = HttpSettings(**data["http"])
         if "bacnet" in data:
             settings.bacnet = BacnetSettings(**data["bacnet"])
+        if "modbus" in data:
+            settings.modbus = ModbusSettings(**data["modbus"])
         if "db_path" in data:
             settings.db_path = data["db_path"]
         if "log_level" in data:
@@ -136,7 +147,14 @@ def load_settings(config_path: str = "config/settings.yaml") -> AppSettings:
     settings.log_level = os.getenv("BACNET_LAB_LOG_LEVEL", settings.log_level)
     settings.auth.username = os.getenv("BACNET_LAB_AUTH_USERNAME", settings.auth.username)
     settings.auth.password = os.getenv("BACNET_LAB_AUTH_PASSWORD", settings.auth.password)
-
+    settings.modbus.host = os.getenv("BACNET_LAB_MODBUS_HOST", settings.modbus.host)
+    settings.modbus.port = int(os.getenv("BACNET_LAB_MODBUS_PORT", str(settings.modbus.port)))
+    settings.modbus.unit_start = int(
+        os.getenv("BACNET_LAB_MODBUS_UNIT_START", str(settings.modbus.unit_start))
+    )
+    settings.modbus.unit_end = int(
+        os.getenv("BACNET_LAB_MODBUS_UNIT_END", str(settings.modbus.unit_end))
+    )
     sim = settings.simulation
     sim.enabled = _bool("BACNET_LAB_SIM_ENABLED", sim.enabled)
     sim.autostart = _bool("BACNET_LAB_SIM_AUTOSTART", sim.autostart)
