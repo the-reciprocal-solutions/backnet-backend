@@ -1,81 +1,57 @@
+"""WebSocket fan-out: push live enriched anomalies + work orders to clients.
+
+``ConnectionManager`` holds the connected sockets and broadcasts JSON to all of
+them (dead sockets are dropped, never blocking the loop). ``WsBroadcaster``
+subscribes to the event bus and forwards ``AnomalyEnriched`` and
+``WorkOrderAssigned`` events to the manager using their frozen ``to_message()``
+wire contract — the same shape the REST ``/api/anomaly-feed`` serves and the
+frontend ws.js client expects (message.type = "anomaly" | "work_order").
+"""
+
 from __future__ import annotations
 
 import logging
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+
+from bacnet_lab.domain.events import AnomalyEnriched, DomainEvent, WorkOrderAssigned
 
 logger = logging.getLogger(__name__)
-
-router = APIRouter(tags=["websocket"])
 
 
 class ConnectionManager:
     def __init__(self) -> None:
-        self.active_connections: set[WebSocket] = set()
+        self._clients: set = set()
 
-    async def connect(self, websocket: WebSocket) -> None:
-        """Accept connection and add to set of active clients."""
-        await websocket.accept()
-        self.active_connections.add(websocket)
-        logger.info("New WebSocket connection accepted. Active connections: %d", len(self.active_connections))
+    async def connect(self, ws) -> None:
+        await ws.accept()
+        self._clients.add(ws)
+        logger.info("WS client connected (%d total)", len(self._clients))
 
-    def disconnect(self, websocket: WebSocket) -> None:
-        """Remove connection from the set of active clients."""
-        self.active_connections.discard(websocket)
-        logger.info("WebSocket connection disconnected. Active connections: %d", len(self.active_connections))
+    def disconnect(self, ws) -> None:
+        self._clients.discard(ws)
+        logger.info("WS client disconnected (%d total)", len(self._clients))
 
     async def broadcast(self, message: dict) -> None:
-        """Send JSON message to all active clients.
-        
-        Drops and removes any client that errors out on sending, preventing one
-        dead connection from blocking the entire broadcast loop.
-        """
-        if not self.active_connections:
-            return
-
-        # Iterate over a list copy to safely remove failed connections during iteration
-        failed_connections = []
-        for connection in list(self.active_connections):
+        dead = []
+        for ws in self._clients:
             try:
-                await connection.send_json(message)
-            except Exception as e:
-                logger.warning("Failed to send message to WebSocket client, marking for removal: %s", e)
-                failed_connections.append(connection)
+                await ws.send_json(message)
+            except Exception:
+                dead.append(ws)
+        for ws in dead:
+            self._clients.discard(ws)
 
-        for connection in failed_connections:
-            self.disconnect(connection)
-
-
-manager = ConnectionManager()
-
-
-@router.websocket("/api/ws")
-async def websocket_endpoint(websocket: WebSocket) -> None:
-    """FastAPI WebSocket endpoint for the client connection and keep-alive loop."""
-    await manager.connect(websocket)
-    try:
-        while True:
-            # Await client messages to keep the connection alive.
-            # We ignore any sent content as the WebSocket is outbound only.
-            await websocket.receive_text()
-    except WebSocketDisconnect:
-        manager.disconnect(websocket)
-    except Exception as e:
-        logger.error("Error in WebSocket connection loop: %s", e)
-        manager.disconnect(websocket)
+    @property
+    def count(self) -> int:
+        return len(self._clients)
 
 
-@router.get("/api/ws/test")
-async def test_broadcast_route():
-    """HTTP GET endpoint to trigger a websocket broadcast on the running server."""
-    payload = {
-        "type": "anomaly",
-        "device_id": 1001,
-        "point": "AHU-1.vibration",
-        "value": 8.3,
-        "unit": "mm/s",
-        "severity": "high",
-        "anomaly": {"score": 0.91, "kind": "vibration_spike"},
-        "ts": "2026-06-18T10:30:00Z"
-    }
-    await manager.broadcast(payload)
-    return {"status": "Test message broadcasted successfully!", "payload": payload}
+class WsBroadcaster:
+    """Bus subscriber that forwards enriched anomalies + work orders to WS."""
+
+    def __init__(self, event_publisher, manager: ConnectionManager) -> None:
+        self._manager = manager
+        event_publisher.subscribe(self._on_event)
+
+    async def _on_event(self, event: DomainEvent) -> None:
+        if isinstance(event, (AnomalyEnriched, WorkOrderAssigned)):
+            await self._manager.broadcast(event.to_message())

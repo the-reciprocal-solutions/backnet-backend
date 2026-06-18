@@ -25,6 +25,7 @@ import logging
 import uuid
 from datetime import datetime, timezone
 
+from bacnet_lab.application.prediction_service import HARD_LIMITS
 from bacnet_lab.domain.enums import AlarmSeverity, EventType
 from bacnet_lab.domain.events import AlarmCleared, AlarmRaised, DomainEvent, PointValueChanged
 from bacnet_lab.forecasting.db import ForecastDB
@@ -40,6 +41,7 @@ class AnomalyDetector:
         self,
         event_publisher: EventPublisherPort,
         db: ForecastDB,
+        device_service=None,
         *,
         min_band_ratio: float = 0.5,
         max_forecast_age_s: float = 900.0,
@@ -47,6 +49,8 @@ class AnomalyDetector:
     ) -> None:
         self._event_publisher = event_publisher
         self._db = db
+        # Optional: resolves a point's units for the immediate hard-limit check.
+        self._device_service = device_service
         # Breach must exceed this fraction of the band width to count.
         self._min_band_ratio = min_band_ratio
         self._max_forecast_age_s = max_forecast_age_s
@@ -70,6 +74,11 @@ class AnomalyDetector:
 
         value = event.new_value
         if not isinstance(value, (int, float)) or isinstance(value, bool):
+            return
+
+        # Immediate hard-limit breach — fires WITHOUT a forecast (e.g. a one-shot
+        # injected value beyond a catastrophic operating limit). Deterministic.
+        if await self._check_hard_limit(event, float(value)):
             return
 
         forecasts = await self._db.latest_forecast(object_name, limit=288)
@@ -124,6 +133,47 @@ class AnomalyDetector:
 
         severity = self._severity_for(over)
         await self._raise_anomaly_alarm(event, val_f, threshold, direction, severity, over)
+
+    async def _check_hard_limit(self, event: PointValueChanged, value: float) -> bool:
+        """Fire instantly if value is beyond a catastrophic hard limit for its
+        units. Independent of any forecast. Returns True if it raised (or the
+        point is already alarmed), so the caller skips the forecast path."""
+        if self._device_service is None:
+            return False
+        units = self._point_units(event.device_id, event.point_name)
+        if not units:
+            return False
+        limits = HARD_LIMITS.get(units)
+        if not limits:
+            return False
+
+        hi, lo = limits.get("hi"), limits.get("lo")
+        direction = threshold = None
+        if hi is not None and value > hi:
+            direction, threshold = "above", hi
+        elif lo is not None and value < lo:
+            direction, threshold = "below", lo
+        if direction is None:
+            return False
+
+        if event.point_name in self._active:
+            return True  # already alarmed; don't spam, but consume the event
+        await self._raise_anomaly_alarm(
+            event, value, threshold, direction, AlarmSeverity.CRITICAL, over=3.0
+        )
+        return True
+
+    def _point_units(self, device_id: int, point_name: str) -> str:
+        try:
+            device = self._device_service.get_in_memory_device(device_id)
+            if not device:
+                return ""
+            for p in getattr(device, "points", []):
+                if p.object_name == point_name:
+                    return getattr(p, "units", "") or ""
+        except Exception:
+            return ""
+        return ""
 
     def _severity_for(self, over: float) -> AlarmSeverity:
         """Map breach size (in band-widths) to severity."""

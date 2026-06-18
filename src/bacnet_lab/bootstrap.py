@@ -25,8 +25,10 @@ from bacnet_lab.adapters.scenarios.predictive_validation import (
     SensorStuckScenario,
 )
 from bacnet_lab.adapters.scenarios.registry import ScenarioRegistry
+from bacnet_lab.adapters.web.websocket import ConnectionManager, WsBroadcaster
 from bacnet_lab.adapters.webhook.delivery import WebhookDeliveryAdapter
 from bacnet_lab.application.alarm_service import AlarmService
+from bacnet_lab.application.anomaly_feed import AnomalyFeed
 from bacnet_lab.application.asset_service import AssetService
 from bacnet_lab.application.device_service import DeviceService
 from bacnet_lab.adapters.persistence.timescale import TimescaleTimeSeries
@@ -66,6 +68,8 @@ class Container:
     asset_service: AssetService
     prediction_service: PredictionService
     pipeline_service: PipelineService
+    anomaly_feed: AnomalyFeed
+    ws_manager: ConnectionManager
     alarm_repo: SqliteAlarmRepository
     engine: BAC0Engine
     event_publisher: InProcessEventPublisher
@@ -186,10 +190,11 @@ async def create_container(settings: AppSettings) -> Container:
         settings=settings.forecast,
     )
 
-    # Anomaly Detection (compares live points against forecasts)
+    # Anomaly Detection (forecast-band breach + immediate hard-limit breach)
     anomaly_detector = AnomalyDetector(
         event_publisher=event_publisher,
         db=forecast_service.db,
+        device_service=device_service,
     )
 
     # Reasoning copilot (Chronos + DB evidence + grounded LLM)
@@ -215,6 +220,13 @@ async def create_container(settings: AppSettings) -> Container:
         reasoning_enabled=settings.llm.enabled,
     )
 
+    # Live feed buffer for the frontend grid (enriched anomalies + work orders).
+    anomaly_feed = AnomalyFeed(event_publisher)
+
+    # WebSocket fan-out: broadcast the same enriched events to live clients.
+    ws_manager = ConnectionManager()
+    WsBroadcaster(event_publisher, ws_manager)
+
     logger.info("Container initialized: %d devices loaded", len(devices))
 
     return Container(
@@ -235,6 +247,8 @@ async def create_container(settings: AppSettings) -> Container:
         asset_service=asset_service,
         prediction_service=prediction_service,
         pipeline_service=pipeline_service,
+        anomaly_feed=anomaly_feed,
+        ws_manager=ws_manager,
         alarm_repo=alarm_repo,
         engine=engine,
         event_publisher=event_publisher,

@@ -7,6 +7,7 @@ from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 from bacnet_lab.adapters.http.routers import (
+    anomaly_feed,
     assets,
     copilot,
     devices,
@@ -19,6 +20,7 @@ from bacnet_lab.adapters.http.routers import (
     predictions,
     scenarios,
     simulation,
+    ws,
 )
 
 
@@ -46,9 +48,9 @@ def create_app(auth_username: str = "", auth_password: str = "") -> FastAPI:
     app.include_router(metrics.router)
     app.include_router(assets.router)
     app.include_router(predictions.router)
-  # WebSocket router
-    from bacnet_lab.adapters.web.websocket import router as websocket_router
-    app.include_router(websocket_router)
+    app.include_router(anomaly_feed.router)
+    app.include_router(ws.router)
+
     # Web UI
     from bacnet_lab.adapters.web.router import router as web_router
 

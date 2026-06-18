@@ -34,6 +34,7 @@ HARD_LIMITS: dict[str, dict[str, float | None]] = {
     "kilowatts": {"hi": None, "lo": None},
     "volts": {"hi": None, "lo": None},
     "hertz": {"hi": None, "lo": None},
+    "millimetersPerSecond": {"hi": 7.0, "lo": None},  # ISO 10816 fan vibration alarm
 }
 
 # Which points are worth scanning -- rotating/critical analog signals.
