@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
@@ -24,6 +25,8 @@ from bacnet_lab.ports.repositories import (
     EndpointRepositoryPort,
     EventLogRepositoryPort,
 )
+
+logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
@@ -132,7 +135,11 @@ class SqliteDeviceRepository(DeviceRepositoryPort):
             rows = await cursor.fetchall()
         devices = []
         for row in rows:
-            device = await self.get(row["device_id"])
+            try:
+                device = await self.get(row["device_id"])
+            except Exception as e:  # one bad row must not 500 the whole list
+                logger.warning("Skipping unreadable device %s: %s", row["device_id"], e)
+                continue
             if device:
                 devices.append(device)
         return devices
@@ -379,7 +386,13 @@ class SqliteAssetRepository(AssetRepositoryPort):
             db.row_factory = aiosqlite.Row
             cursor = await db.execute("SELECT * FROM assets ORDER BY created_at")
             rows = await cursor.fetchall()
-            return [self._row_to_asset(r) for r in rows]
+        out = []
+        for r in rows:
+            try:
+                out.append(self._row_to_asset(r))
+            except Exception as e:  # one bad row must not 500 the whole list
+                logger.warning("Skipping unreadable asset %s: %s", r["id"], e)
+        return out
 
     async def delete(self, asset_id: str) -> None:
         async with _connect(self._db_path) as db:
