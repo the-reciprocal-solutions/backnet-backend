@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
 import aiosqlite
@@ -25,6 +26,20 @@ from bacnet_lab.ports.repositories import (
 )
 
 
+@asynccontextmanager
+async def _connect(db_path: str):
+    """Open a SQLite connection tuned for concurrent access.
+
+    WAL lets readers run without blocking the writer; busy_timeout makes a
+    contended connection wait for the lock instead of failing instantly with
+    "database is locked".
+    """
+    async with aiosqlite.connect(db_path, timeout=30) as db:
+        await db.execute("PRAGMA journal_mode=WAL")
+        await db.execute("PRAGMA busy_timeout=5000")
+        yield db
+
+
 def _parse_value(raw: str) -> float | int | bool | str:
     if raw in ("true", "True"):
         return True
@@ -43,7 +58,7 @@ class SqliteDeviceRepository(DeviceRepositoryPort):
         self._db_path = db_path
 
     async def save(self, device: Device) -> None:
-        async with aiosqlite.connect(self._db_path) as db:
+        async with _connect(self._db_path) as db:
             await db.execute(
                 "INSERT OR REPLACE INTO devices (device_id, name, description, ip, port, status) "
                 "VALUES (?, ?, ?, ?, ?, ?)",
@@ -76,7 +91,7 @@ class SqliteDeviceRepository(DeviceRepositoryPort):
             await db.commit()
 
     async def get(self, device_id: int) -> Device | None:
-        async with aiosqlite.connect(self._db_path) as db:
+        async with _connect(self._db_path) as db:
             db.row_factory = aiosqlite.Row
             cursor = await db.execute(
                 "SELECT * FROM devices WHERE device_id = ?", (device_id,)
@@ -93,24 +108,25 @@ class SqliteDeviceRepository(DeviceRepositoryPort):
                     object_type=PointType(pr["object_type"]),
                     object_instance=pr["object_instance"],
                     object_name=pr["object_name"],
-                    description=pr["description"],
+                    description=pr["description"] or "",
                     present_value=_parse_value(pr["present_value"]),
-                    units=pr["units"],
+                    units=pr["units"] or "",
                     cov_increment=pr["cov_increment"],
                 )
                 for pr in point_rows
             ]
+            # Coalesce NULLs — legacy/partial rows must not poison serialization.
             return Device(
                 device_id=row["device_id"],
-                name=row["name"],
-                description=row["description"],
+                name=row["name"] or "",
+                description=row["description"] or "",
                 address=DeviceAddress(ip=row["ip"], port=row["port"]) if row["ip"] else None,
-                status=DeviceStatus(row["status"]),
+                status=DeviceStatus(row["status"]) if row["status"] else DeviceStatus.ONLINE,
                 points=points,
             )
 
     async def list_all(self) -> list[Device]:
-        async with aiosqlite.connect(self._db_path) as db:
+        async with _connect(self._db_path) as db:
             db.row_factory = aiosqlite.Row
             cursor = await db.execute("SELECT device_id FROM devices ORDER BY device_id")
             rows = await cursor.fetchall()
@@ -124,7 +140,7 @@ class SqliteDeviceRepository(DeviceRepositoryPort):
     async def update_point_value(
         self, device_id: int, point_name: str, value: float | int | bool | str
     ) -> None:
-        async with aiosqlite.connect(self._db_path) as db:
+        async with _connect(self._db_path) as db:
             await db.execute(
                 "UPDATE points SET present_value = ? WHERE device_id = ? AND object_name = ?",
                 (str(value), device_id, point_name),
@@ -132,7 +148,7 @@ class SqliteDeviceRepository(DeviceRepositoryPort):
             await db.commit()
 
     async def update_status(self, device_id: int, status: str) -> None:
-        async with aiosqlite.connect(self._db_path) as db:
+        async with _connect(self._db_path) as db:
             await db.execute(
                 "UPDATE devices SET status = ? WHERE device_id = ?",
                 (status, device_id),
@@ -145,7 +161,7 @@ class SqliteEndpointRepository(EndpointRepositoryPort):
         self._db_path = db_path
 
     async def save(self, endpoint: OutboundEndpoint) -> None:
-        async with aiosqlite.connect(self._db_path) as db:
+        async with _connect(self._db_path) as db:
             await db.execute(
                 "INSERT OR REPLACE INTO endpoints "
                 "(id, url, secret, enabled, event_types, created_at, last_delivery_at, failure_count) "
@@ -164,7 +180,7 @@ class SqliteEndpointRepository(EndpointRepositoryPort):
             await db.commit()
 
     async def get(self, endpoint_id: str) -> OutboundEndpoint | None:
-        async with aiosqlite.connect(self._db_path) as db:
+        async with _connect(self._db_path) as db:
             db.row_factory = aiosqlite.Row
             cursor = await db.execute("SELECT * FROM endpoints WHERE id = ?", (endpoint_id,))
             row = await cursor.fetchone()
@@ -173,19 +189,19 @@ class SqliteEndpointRepository(EndpointRepositoryPort):
             return self._row_to_endpoint(row)
 
     async def list_all(self) -> list[OutboundEndpoint]:
-        async with aiosqlite.connect(self._db_path) as db:
+        async with _connect(self._db_path) as db:
             db.row_factory = aiosqlite.Row
             cursor = await db.execute("SELECT * FROM endpoints ORDER BY created_at")
             rows = await cursor.fetchall()
             return [self._row_to_endpoint(r) for r in rows]
 
     async def delete(self, endpoint_id: str) -> None:
-        async with aiosqlite.connect(self._db_path) as db:
+        async with _connect(self._db_path) as db:
             await db.execute("DELETE FROM endpoints WHERE id = ?", (endpoint_id,))
             await db.commit()
 
     async def update_delivery_status(self, endpoint_id: str, success: bool) -> None:
-        async with aiosqlite.connect(self._db_path) as db:
+        async with _connect(self._db_path) as db:
             if success:
                 await db.execute(
                     "UPDATE endpoints SET last_delivery_at = ?, failure_count = 0 WHERE id = ?",
@@ -222,7 +238,7 @@ class SqliteEventLogRepository(EventLogRepositoryPort):
         self._db_path = db_path
 
     async def save(self, event: ReplicationEvent) -> None:
-        async with aiosqlite.connect(self._db_path) as db:
+        async with _connect(self._db_path) as db:
             await db.execute(
                 "INSERT OR REPLACE INTO events (id, event_type, timestamp, payload, delivered) "
                 "VALUES (?, ?, ?, ?, ?)",
@@ -237,7 +253,7 @@ class SqliteEventLogRepository(EventLogRepositoryPort):
             await db.commit()
 
     async def list_recent(self, limit: int = 50) -> list[ReplicationEvent]:
-        async with aiosqlite.connect(self._db_path) as db:
+        async with _connect(self._db_path) as db:
             db.row_factory = aiosqlite.Row
             cursor = await db.execute(
                 "SELECT * FROM events ORDER BY timestamp DESC LIMIT ?", (limit,)
@@ -255,7 +271,7 @@ class SqliteEventLogRepository(EventLogRepositoryPort):
             ]
 
     async def mark_delivered(self, event_id: str) -> None:
-        async with aiosqlite.connect(self._db_path) as db:
+        async with _connect(self._db_path) as db:
             await db.execute("UPDATE events SET delivered = 1 WHERE id = ?", (event_id,))
             await db.commit()
 
@@ -265,7 +281,7 @@ class SqliteAlarmRepository(AlarmRepositoryPort):
         self._db_path = db_path
 
     async def save(self, alarm: Alarm) -> None:
-        async with aiosqlite.connect(self._db_path) as db:
+        async with _connect(self._db_path) as db:
             await db.execute(
                 "INSERT OR REPLACE INTO alarms "
                 "(id, device_id, point_name, severity, message, raised_at, cleared_at) "
@@ -283,7 +299,7 @@ class SqliteAlarmRepository(AlarmRepositoryPort):
             await db.commit()
 
     async def get_active(self) -> list[Alarm]:
-        async with aiosqlite.connect(self._db_path) as db:
+        async with _connect(self._db_path) as db:
             db.row_factory = aiosqlite.Row
             cursor = await db.execute(
                 "SELECT * FROM alarms WHERE cleared_at IS NULL ORDER BY raised_at DESC"
@@ -292,7 +308,7 @@ class SqliteAlarmRepository(AlarmRepositoryPort):
             return [self._row_to_alarm(r) for r in rows]
 
     async def clear(self, alarm_id: str) -> None:
-        async with aiosqlite.connect(self._db_path) as db:
+        async with _connect(self._db_path) as db:
             await db.execute(
                 "UPDATE alarms SET cleared_at = ? WHERE id = ?",
                 (datetime.now(timezone.utc).isoformat(), alarm_id),
@@ -300,7 +316,7 @@ class SqliteAlarmRepository(AlarmRepositoryPort):
             await db.commit()
 
     async def list_recent(self, limit: int = 50) -> list[Alarm]:
-        async with aiosqlite.connect(self._db_path) as db:
+        async with _connect(self._db_path) as db:
             db.row_factory = aiosqlite.Row
             cursor = await db.execute(
                 "SELECT * FROM alarms ORDER BY raised_at DESC LIMIT ?", (limit,)
@@ -326,7 +342,7 @@ class SqliteAssetRepository(AssetRepositoryPort):
         self._db_path = db_path
 
     async def save(self, asset: Asset) -> None:
-        async with aiosqlite.connect(self._db_path) as db:
+        async with _connect(self._db_path) as db:
             await db.execute(
                 "INSERT OR REPLACE INTO assets "
                 "(id, name, asset_class, device_id, make, model, serial, "
@@ -350,7 +366,7 @@ class SqliteAssetRepository(AssetRepositoryPort):
             await db.commit()
 
     async def get(self, asset_id: str) -> Asset | None:
-        async with aiosqlite.connect(self._db_path) as db:
+        async with _connect(self._db_path) as db:
             db.row_factory = aiosqlite.Row
             cursor = await db.execute("SELECT * FROM assets WHERE id = ?", (asset_id,))
             row = await cursor.fetchone()
@@ -359,29 +375,30 @@ class SqliteAssetRepository(AssetRepositoryPort):
             return self._row_to_asset(row)
 
     async def get_all(self) -> list[Asset]:
-        async with aiosqlite.connect(self._db_path) as db:
+        async with _connect(self._db_path) as db:
             db.row_factory = aiosqlite.Row
             cursor = await db.execute("SELECT * FROM assets ORDER BY created_at")
             rows = await cursor.fetchall()
             return [self._row_to_asset(r) for r in rows]
 
     async def delete(self, asset_id: str) -> None:
-        async with aiosqlite.connect(self._db_path) as db:
+        async with _connect(self._db_path) as db:
             await db.execute("DELETE FROM assets WHERE id = ?", (asset_id,))
             await db.commit()
 
     @staticmethod
     def _row_to_asset(row: aiosqlite.Row) -> Asset:
+        # Coalesce NULLs — non-optional fields must never reach pydantic as None.
         return Asset(
             id=row["id"],
-            name=row["name"],
-            asset_class=row["asset_class"],
+            name=row["name"] or "",
+            asset_class=row["asset_class"] or "",
             device_id=row["device_id"],
             make=row["make"] or "",
             model=row["model"] or "",
             serial=row["serial"] or "",
             install_date=row["install_date"],
-            criticality=row["criticality"],
+            criticality=row["criticality"] if row["criticality"] is not None else 3,
             location=row["location"] or "",
             parent_id=row["parent_id"],
             created_at=row["created_at"] or "",
