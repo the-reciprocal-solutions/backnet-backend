@@ -5,6 +5,8 @@ from __future__ import annotations
 import asyncio
 import logging
 import signal
+import sys
+import sys
 
 import uvicorn
 
@@ -60,13 +62,19 @@ async def main() -> None:
     )
     server = uvicorn.Server(config)
 
-    loop = asyncio.get_event_loop()
-    for sig in (signal.SIGINT, signal.SIGTERM):
-        loop.add_signal_handler(sig, lambda: asyncio.create_task(shutdown(server, container)))
+    if sys.platform != "win32":
+        loop = asyncio.get_event_loop()
+        for sig in (signal.SIGINT, signal.SIGTERM):
+            try:
+                loop.add_signal_handler(sig, lambda: asyncio.create_task(shutdown(server, container)))
+            except NotImplementedError:
+                pass
 
     logger.info("BACnet Lab ready on http://%s:%d", settings.http.host, settings.http.port)
-    await server.serve()
-
+    try:
+        await server.serve()
+    finally:
+        await shutdown(server, container)
 
 async def shutdown(server: uvicorn.Server, container: object) -> None:
     logger.info("Shutting down...")

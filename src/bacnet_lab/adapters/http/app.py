@@ -46,7 +46,9 @@ def create_app(auth_username: str = "", auth_password: str = "") -> FastAPI:
     app.include_router(metrics.router)
     app.include_router(assets.router)
     app.include_router(predictions.router)
-
+  # WebSocket router
+    from bacnet_lab.adapters.web.websocket import router as websocket_router
+    app.include_router(websocket_router)
     # Web UI
     from bacnet_lab.adapters.web.router import router as web_router
 
