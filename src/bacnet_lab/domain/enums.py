@@ -41,6 +41,8 @@ class EventType(StrEnum):
     SCENARIO_STARTED = "scenario_started"
     SCENARIO_STOPPED = "scenario_stopped"
     TELEMETRY_SNAPSHOT = "telemetry_snapshot"
+    ANOMALY_ENRICHED = "anomaly_enriched"
+    WORK_ORDER_ASSIGNED = "work_order_assigned"
 
 
 class AlarmSeverity(StrEnum):

@@ -10,7 +10,7 @@ def test_load_device_from_yaml():
 
     assert device.device_id == 1001
     assert device.name == "AHU-01"
-    assert len(device.points) == 12
+    assert len(device.points) == 13
 
     supply_temp = device.get_point_by_name("AHU-01/SupplyAirTemp")
     assert supply_temp is not None

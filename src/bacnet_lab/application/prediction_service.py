@@ -119,6 +119,22 @@ class PredictionService:
         )
         return out
 
+    async def predict_point(self, device_id: int, point_name: str) -> dict | None:
+        """Predict failure for ONE point (used by the live pipeline on an anomaly).
+
+        Returns the same dict shape as ``scan_predictions`` entries, or None if
+        the point is unknown / has no usable forecast. Bypasses the criticality
+        gate — if an anomaly already fired, the point is worth predicting.
+        """
+        device = self._device_service.get_in_memory_device(device_id)
+        if not device:
+            return None
+        for point in getattr(device, "points", []):
+            if point.object_name == point_name:
+                units = getattr(point, "units", "") or ""
+                return await self._evaluate_point(device, point, units)
+        return None
+
     async def _evaluate_point(self, device, point, units: str) -> dict | None:
         # point.object_name already carries the device prefix (e.g. AHU-01/SupplyAirTemp)
         name = point.object_name

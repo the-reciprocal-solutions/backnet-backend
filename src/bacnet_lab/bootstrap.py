@@ -18,6 +18,12 @@ from bacnet_lab.adapters.scenarios.alarm import AlarmScenario
 from bacnet_lab.adapters.scenarios.device_offline import DeviceOfflineScenario
 from bacnet_lab.adapters.scenarios.hvac_day_cycle import HvacDayCycleScenario
 from bacnet_lab.adapters.scenarios.manual_override import ManualOverrideScenario
+from bacnet_lab.adapters.scenarios.predictive_validation import (
+    AhuVibrationScenario,
+    CompressorShortCycleScenario,
+    CoolingInefficiencyScenario,
+    SensorStuckScenario,
+)
 from bacnet_lab.adapters.scenarios.registry import ScenarioRegistry
 from bacnet_lab.adapters.webhook.delivery import WebhookDeliveryAdapter
 from bacnet_lab.application.alarm_service import AlarmService
@@ -27,6 +33,7 @@ from bacnet_lab.adapters.persistence.timescale import TimescaleTimeSeries
 from bacnet_lab.application.endpoint_service import EndpointService
 from bacnet_lab.application.event_service import EventService
 from bacnet_lab.application.historian_service import HistorianService
+from bacnet_lab.application.pipeline_service import PipelineService
 from bacnet_lab.application.prediction_service import PredictionService
 from bacnet_lab.application.scenario_service import ScenarioService
 from bacnet_lab.application.simulation_service import SimulationEngine
@@ -58,6 +65,7 @@ class Container:
     copilot_service: CopilotService
     asset_service: AssetService
     prediction_service: PredictionService
+    pipeline_service: PipelineService
     alarm_repo: SqliteAlarmRepository
     engine: BAC0Engine
     event_publisher: InProcessEventPublisher
@@ -69,6 +77,30 @@ async def create_container(settings: AppSettings) -> Container:
 
     # Adapters
     engine = BAC0Engine(ip=settings.bacnet.ip)
+
+    # Multi-protocol exposure: wrap BACnet with MQTT/KNX engines when enabled.
+    # BACnet stays primary (authoritative point state); others mirror writes.
+    network: object = engine
+    extra_engines = []
+    if settings.mqtt.enabled:
+        from bacnet_lab.adapters.mqtt.engine import MqttEngine
+        extra_engines.append(MqttEngine(
+            host=settings.mqtt.host, port=settings.mqtt.port,
+            prefix=settings.mqtt.prefix,
+            username=settings.mqtt.username, password=settings.mqtt.password,
+        ))
+        logger.info("MQTT protocol engine enabled (%s:%d)", settings.mqtt.host, settings.mqtt.port)
+    if settings.knx.enabled:
+        from bacnet_lab.adapters.knx.engine import KnxEngine
+        extra_engines.append(KnxEngine(
+            gateway_ip=settings.knx.gateway_ip, gateway_port=settings.knx.gateway_port,
+        ))
+        logger.info("KNX protocol engine enabled (gateway=%s)",
+                    settings.knx.gateway_ip or "multicast-routing")
+    if extra_engines:
+        from bacnet_lab.adapters.network_composite import CompositeDeviceNetwork
+        network = CompositeDeviceNetwork([engine, *extra_engines])
+
     event_publisher = InProcessEventPublisher()
     webhook_delivery = WebhookDeliveryAdapter()
 
@@ -82,7 +114,7 @@ async def create_container(settings: AppSettings) -> Container:
     # Application services
     device_service = DeviceService(
         device_repo=device_repo,
-        network=engine,
+        network=network,
         event_publisher=event_publisher,
         bacnet_port_start=settings.bacnet.port_start,
     )
@@ -93,6 +125,12 @@ async def create_container(settings: AppSettings) -> Container:
     scenario_registry.register(AlarmScenario(device_service, event_publisher))
     scenario_registry.register(DeviceOfflineScenario(device_service, event_publisher))
     scenario_registry.register(ManualOverrideScenario(device_service, event_publisher))
+    # Predictive-layer validation scenarios (inject known faults to confirm
+    # anomaly detection + prediction + reasoning fire correctly).
+    scenario_registry.register(AhuVibrationScenario(device_service, event_publisher))
+    scenario_registry.register(CoolingInefficiencyScenario(device_service, event_publisher))
+    scenario_registry.register(SensorStuckScenario(device_service, event_publisher))
+    scenario_registry.register(CompressorShortCycleScenario(device_service, event_publisher))
 
     scenario_service = ScenarioService(runner=scenario_registry)
 
@@ -166,6 +204,17 @@ async def create_container(settings: AppSettings) -> Container:
         alarm_service=alarm_service,
     )
 
+    # Pipeline orchestrator: anomaly alarms -> reasoning -> AnomalyEnriched.
+    # The WebSocket broadcaster (intern B1) and reasoning webhook (intern B3)
+    # subscribe to the AnomalyEnriched events this publishes.
+    pipeline_service = PipelineService(
+        event_publisher=event_publisher,
+        device_service=device_service,
+        copilot_service=copilot_service,
+        prediction_service=prediction_service,
+        reasoning_enabled=settings.llm.enabled,
+    )
+
     logger.info("Container initialized: %d devices loaded", len(devices))
 
     return Container(
@@ -185,6 +234,7 @@ async def create_container(settings: AppSettings) -> Container:
         copilot_service=copilot_service,
         asset_service=asset_service,
         prediction_service=prediction_service,
+        pipeline_service=pipeline_service,
         alarm_repo=alarm_repo,
         engine=engine,
         event_publisher=event_publisher,

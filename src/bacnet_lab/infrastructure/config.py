@@ -80,6 +80,23 @@ class LLMSettings:
 
 
 @dataclass
+class MqttSettings:
+    enabled: bool = False
+    host: str = "localhost"
+    port: int = 1883
+    prefix: str = "bacnet_lab"
+    username: str = ""
+    password: str = ""
+
+
+@dataclass
+class KnxSettings:
+    enabled: bool = False
+    gateway_ip: str = ""             # empty = multicast routing
+    gateway_port: int = 3671
+
+
+@dataclass
 class AppSettings:
     http: HttpSettings = field(default_factory=HttpSettings)
     bacnet: BacnetSettings = field(default_factory=BacnetSettings)
@@ -88,6 +105,8 @@ class AppSettings:
     timescale: TimescaleSettings = field(default_factory=TimescaleSettings)
     forecast: ForecastSettings = field(default_factory=ForecastSettings)
     llm: LLMSettings = field(default_factory=LLMSettings)
+    mqtt: MqttSettings = field(default_factory=MqttSettings)
+    knx: KnxSettings = field(default_factory=KnxSettings)
     db_path: str = "bacnet_lab.db"
     log_level: str = "INFO"
     devices_dir: str = "config/devices"
@@ -117,6 +136,10 @@ def load_settings(config_path: str = "config/settings.yaml") -> AppSettings:
             settings.forecast = ForecastSettings(**data["forecast"])
         if "llm" in data:
             settings.llm = LLMSettings(**data["llm"])
+        if "mqtt" in data:
+            settings.mqtt = MqttSettings(**data["mqtt"])
+        if "knx" in data:
+            settings.knx = KnxSettings(**data["knx"])
 
     import os
 
@@ -178,5 +201,18 @@ def load_settings(config_path: str = "config/settings.yaml") -> AppSettings:
     llm.api_key = os.getenv("BACNET_LAB_LLM_API_KEY", llm.api_key)
     llm.model = os.getenv("BACNET_LAB_LLM_MODEL", llm.model)
     llm.timeout_s = float(os.getenv("BACNET_LAB_LLM_TIMEOUT_S", str(llm.timeout_s)))
+
+    mqtt = settings.mqtt
+    mqtt.enabled = _bool("BACNET_LAB_MQTT_ENABLED", mqtt.enabled)
+    mqtt.host = os.getenv("BACNET_LAB_MQTT_HOST", mqtt.host)
+    mqtt.port = int(os.getenv("BACNET_LAB_MQTT_PORT", str(mqtt.port)))
+    mqtt.prefix = os.getenv("BACNET_LAB_MQTT_PREFIX", mqtt.prefix)
+    mqtt.username = os.getenv("BACNET_LAB_MQTT_USERNAME", mqtt.username)
+    mqtt.password = os.getenv("BACNET_LAB_MQTT_PASSWORD", mqtt.password)
+
+    knx = settings.knx
+    knx.enabled = _bool("BACNET_LAB_KNX_ENABLED", knx.enabled)
+    knx.gateway_ip = os.getenv("BACNET_LAB_KNX_GATEWAY_IP", knx.gateway_ip)
+    knx.gateway_port = int(os.getenv("BACNET_LAB_KNX_GATEWAY_PORT", str(knx.gateway_port)))
 
     return settings

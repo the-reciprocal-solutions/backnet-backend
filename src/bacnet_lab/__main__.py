@@ -44,6 +44,8 @@ async def main() -> None:
     if settings.llm.enabled:
         logger.info("Copilot service started (LLM model=%s)", settings.llm.model)
 
+    await container.pipeline_service.start()
+
     app = create_app(
         auth_username=settings.auth.username,
         auth_password=settings.auth.password,
@@ -79,6 +81,7 @@ async def main() -> None:
 async def shutdown(server: uvicorn.Server, container: object) -> None:
     logger.info("Shutting down...")
     server.should_exit = True
+    await container.pipeline_service.stop()
     await container.copilot_service.stop()
     await container.forecast_scheduler.stop()
     await container.forecast_service.stop()

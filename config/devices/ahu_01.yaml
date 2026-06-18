@@ -142,3 +142,16 @@ points:
     simulation:
       model: constant
       value: 250.0
+  - object_type: analogInput
+    object_instance: 5
+    object_name: "AHU-01/Vibration"
+    description: "Supply fan vibration velocity (RMS)"
+    present_value: 2.0
+    units: "millimetersPerSecond"
+    cov_increment: 0.2
+    simulation:
+      model: random_walk
+      center: 2.0
+      step: 0.1
+      mean_reversion: 0.2
+      bounds: [0.0, 25.0]
