@@ -25,6 +25,10 @@ class ModbusSettings:
     unit_start: int = 1
     unit_end: int = 10
 
+@dataclass
+class WebhookSettings:
+    url: str = ""
+
 
 @dataclass
 class AuthSettings:
@@ -92,6 +96,7 @@ class AppSettings:
     http: HttpSettings = field(default_factory=HttpSettings)
     bacnet: BacnetSettings = field(default_factory=BacnetSettings)
     modbus: ModbusSettings = field(default_factory=ModbusSettings) # <--- ADD THIS LINE
+    webhook: WebhookSettings = field(default_factory=WebhookSettings)
     auth: AuthSettings = field(default_factory=AuthSettings)
     simulation: SimulationSettings = field(default_factory=SimulationSettings)
     timescale: TimescaleSettings = field(default_factory=TimescaleSettings)
@@ -114,6 +119,8 @@ def load_settings(config_path: str = "config/settings.yaml") -> AppSettings:
             settings.bacnet = BacnetSettings(**data["bacnet"])
         if "modbus" in data:
             settings.modbus = ModbusSettings(**data["modbus"])
+        if "webhook" in data: 
+            settings.webhook = WebhookSettings(**data["webhook"])
         if "db_path" in data:
             settings.db_path = data["db_path"]
         if "log_level" in data:
@@ -155,6 +162,7 @@ def load_settings(config_path: str = "config/settings.yaml") -> AppSettings:
     settings.modbus.unit_end = int(
         os.getenv("BACNET_LAB_MODBUS_UNIT_END", str(settings.modbus.unit_end))
     )
+    settings.webhook.url = os.getenv("BACNET_LAB_WEBHOOK_URL", settings.webhook.url)
     sim = settings.simulation
     sim.enabled = _bool("BACNET_LAB_SIM_ENABLED", sim.enabled)
     sim.autostart = _bool("BACNET_LAB_SIM_AUTOSTART", sim.autostart)
