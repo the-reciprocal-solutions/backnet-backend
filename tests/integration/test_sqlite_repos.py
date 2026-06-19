@@ -28,7 +28,7 @@ from datetime import datetime, timezone
 def db_path():
     fd, path = tempfile.mkstemp(suffix=".db")
     os.close(fd)
-    asyncio.get_event_loop().run_until_complete(run_migrations(path))
+    asyncio.run(run_migrations(path))
     yield path
     os.unlink(path)
 

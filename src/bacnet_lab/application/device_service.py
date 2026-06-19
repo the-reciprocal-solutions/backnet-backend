@@ -31,14 +31,17 @@ class DeviceService:
         for i, device in enumerate(devices):
             udp_port = self._port_start + i
             try:
-                await self._network.start_device(device, udp_port)
-                device.status = DeviceStatus.ONLINE
+                if device.protocol == "bacnet":
+                    await self._network.start_device(device, udp_port)
+                    device.status = DeviceStatus.ONLINE
+                else:
+                    device.status = DeviceStatus.ONLINE
             except Exception as e:
                 logger.error("Failed to start device %s: %s", device.name, e)
                 device.status = DeviceStatus.ERROR
             await self._repo.save(device)
             self._devices[device.device_id] = device
-            logger.info("Initialized device %s (ID=%d)", device.name, device.device_id)
+            logger.info("Initialized device %s (ID=%d, protocol=%s)", device.name, device.device_id, device.protocol)
 
     async def list_devices(self) -> list[Device]:
         return await self._repo.list_all()

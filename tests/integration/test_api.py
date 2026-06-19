@@ -1,6 +1,7 @@
 import asyncio
 import os
 import tempfile
+from pathlib import Path
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -29,6 +30,9 @@ from bacnet_lab.domain.models.device import Device, Point
 from bacnet_lab.domain.value_objects import PointValue
 from bacnet_lab.infrastructure.config import AppSettings
 from bacnet_lab.ports.device_network import DeviceNetworkPort
+
+
+BACKEND_ROOT = Path(__file__).resolve().parents[2]
 
 
 class FakeNetwork(DeviceNetworkPort):
@@ -96,7 +100,7 @@ async def client():
     telemetry_service = TelemetryService(event_publisher=event_publisher)
 
     # Load test devices
-    devices = load_all_devices("config/devices")
+    devices = load_all_devices(str(BACKEND_ROOT / "config" / "devices"))
     await device_service.initialize_devices(devices)
 
     container = Container(
@@ -106,6 +110,16 @@ async def client():
         endpoint_service=endpoint_service,
         event_service=event_service,
         telemetry_service=telemetry_service,
+        simulation_engine=None,
+        alarm_service=None,
+        historian_service=None,
+        tsdb=None,
+        forecast_service=None,
+        forecast_scheduler=None,
+        anomaly_detector=None,
+        copilot_service=None,
+        asset_service=None,
+        prediction_service=None,
         alarm_repo=alarm_repo,
         engine=None,
         event_publisher=event_publisher,
@@ -126,7 +140,7 @@ async def test_health(client):
     assert resp.status_code == 200
     data = resp.json()
     assert data["status"] == "ok"
-    assert data["devices_count"] == 7
+    assert data["devices_count"] == 8
 
 
 @pytest.mark.asyncio
@@ -134,7 +148,7 @@ async def test_list_devices(client):
     resp = await client.get("/api/devices")
     assert resp.status_code == 200
     data = resp.json()
-    assert len(data) == 7
+    assert len(data) == 8
 
 
 @pytest.mark.asyncio

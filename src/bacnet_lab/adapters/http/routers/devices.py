@@ -24,6 +24,7 @@ async def list_devices() -> list[DeviceResponse]:
             description=d.description,
             status=d.status.value,
             point_count=len(d.points),
+            protocol=d.protocol,
         )
         for d in devices
     ]
@@ -40,6 +41,7 @@ async def get_device(device_id: int) -> DeviceDetailResponse:
         name=device.name,
         description=device.description,
         status=device.status.value,
+        protocol=device.protocol,
         points=[
             PointResponse(
                 object_type=p.object_type.value,

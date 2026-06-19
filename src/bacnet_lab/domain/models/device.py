@@ -30,6 +30,7 @@ class Device:
     address: DeviceAddress | None = None
     status: DeviceStatus = DeviceStatus.ONLINE
     points: list[Point] = field(default_factory=list)
+    protocol: str = "bacnet" 
 
     def get_point(self, object_type: PointType, instance: int) -> Point | None:
         for p in self.points:

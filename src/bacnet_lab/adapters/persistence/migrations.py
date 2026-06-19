@@ -10,7 +10,8 @@ TABLES = [
         description TEXT DEFAULT '',
         ip TEXT DEFAULT '',
         port INTEGER DEFAULT 0,
-        status TEXT DEFAULT 'online'
+        status TEXT DEFAULT 'online',
+        protocol TEXT DEFAULT 'bacnet'
     )
     """,
     """
@@ -91,4 +92,9 @@ async def run_migrations(db_path: str) -> None:
     async with aiosqlite.connect(db_path) as db:
         for table_sql in TABLES:
             await db.execute(table_sql)
+        # Migrate existing database to add protocol column
+        try:
+            await db.execute("ALTER TABLE devices ADD COLUMN protocol TEXT DEFAULT 'bacnet'")
+        except aiosqlite.OperationalError:
+            pass  # Column already exists
         await db.commit()
