@@ -76,18 +76,28 @@ class AnomalyEnriched(DomainEvent):
     failure_prob: float | None = None
     eta_hours: float | None = None
     explanation: str | None = None
+    root_cause: str | None = None
+    contributing_factors: list[str] | None = None
+    recommended_action: str | None = None
+    confidence: float | None = None
     event_type: EventType = field(default=EventType.ANOMALY_ENRICHED, init=False)
 
     def to_message(self) -> dict:
         """Serialize to the exact JSON contract pushed over the WebSocket."""
         reasoning = None
         if any(v is not None for v in (self.component, self.failure_prob,
-                                       self.eta_hours, self.explanation)):
+                                       self.eta_hours, self.explanation,
+                                       self.root_cause, self.contributing_factors,
+                                       self.recommended_action, self.confidence)):
             reasoning = {
                 "component": self.component,
                 "failure_prob": self.failure_prob,
                 "eta_hours": self.eta_hours,
                 "explanation": self.explanation,
+                "root_cause": self.root_cause,
+                "contributing_factors": self.contributing_factors,
+                "recommended_action": self.recommended_action,
+                "confidence": self.confidence,
             }
         return {
             "type": "anomaly",

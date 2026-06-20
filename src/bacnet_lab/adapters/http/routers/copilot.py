@@ -39,6 +39,10 @@ async def explain(
         "evidence": r.evidence,
         "llm_model": r.llm_model,
         "grounded": r.grounded,
+        "root_cause": r.root_cause,
+        "contributing_factors": r.contributing_factors,
+        "recommended_action": r.recommended_action,
+        "confidence": r.confidence,
         **r.extras,
     }
 

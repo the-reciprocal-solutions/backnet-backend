@@ -30,6 +30,23 @@ _SYSTEM = (
     "to stay near its current reading. Keep it under 6 lines."
 )
 
+_SYSTEM_JSON = (
+    "You are a building-automation (BMS) diagnostics assistant. You are given a "
+    "Chronos forecast for one BACnet point and a set of MEASURED evidence numbers "
+    "(recent changes in related points and recent events). Using ONLY these "
+    "numbers, respond in a JSON object with the following keys:\n"
+    "1. \"explanation\": A brief narration in exactly this format:\n"
+    "   Prediction: <point> ≈ <p50><units> in <horizon> (range <p10>–<p90>)\n"
+    "   Reason:\n"
+    "   - <driver point>: <old>→<new> (<delta><units>)\n"
+    "   - ...\n"
+    "   (Cite largest driver changes first; do NOT invent values; keep it under 6 lines).\n"
+    "2. \"root_cause\": A string explaining the most probable root cause of the anomaly based on the evidence.\n"
+    "3. \"contributing_factors\": A JSON array of strings citing specific contributing evidence/measurements.\n"
+    "4. \"recommended_action\": A string suggesting a concrete physical inspection or maintenance action.\n"
+    "5. \"confidence\": A JSON number between 0.0 and 1.0 representing your diagnostic confidence."
+)
+
 
 @dataclass
 class CopilotResult:
@@ -43,6 +60,10 @@ class CopilotResult:
     llm_model: str
     grounded: bool = True
     extras: dict = field(default_factory=dict)
+    root_cause: str | None = None
+    contributing_factors: list[str] | None = None
+    recommended_action: str | None = None
+    confidence: float | None = None
 
 
 class CopilotService:
@@ -107,13 +128,32 @@ class CopilotService:
 
         # 3. NARRATE — grounded LLM (skipped if disabled/unreachable).
         answer = ""
+        root_cause = None
+        contributing_factors = None
+        recommended_action = None
+        confidence = None
         grounded = True
+
         if self._llm_settings.enabled:
             user = (
                 f"Point: {object_name} (units: {units or 'n/a'})\n"
                 f"Evidence JSON:\n{json.dumps(evidence, default=str)}"
             )
-            answer = await self._llm.chat(_SYSTEM, user)
+            raw_answer = await self._llm.chat(_SYSTEM_JSON, user, response_json=True)
+            if raw_answer:
+                try:
+                    parsed = json.loads(raw_answer)
+                    answer = parsed.get("explanation", "")
+                    root_cause = parsed.get("root_cause")
+                    contributing_factors = parsed.get("contributing_factors")
+                    recommended_action = parsed.get("recommended_action")
+                    confidence = parsed.get("confidence")
+                    if isinstance(confidence, (int, float)):
+                        confidence = round(float(confidence), 3)
+                except Exception as parse_err:
+                    logger.warning("Failed to parse JSON response from LLM: %s", parse_err)
+                    answer = raw_answer
+
         if not answer:
             # Deterministic fallback so the endpoint always returns something useful.
             grounded = True
@@ -124,12 +164,20 @@ class CopilotService:
             if not drivers:
                 lines.append("- no significant driver changes; value expected near current reading")
             answer = "\n".join(lines)
+            root_cause = None
+            contributing_factors = None
+            recommended_action = None
+            confidence = None
 
         return CopilotResult(
             object_name=object_name, predicted_value=_r(p50), units=units,
             horizon=horizon_label, forecast=evidence["forecast"], evidence=evidence,
             answer=answer, llm_model=self._llm.model, grounded=grounded,
             extras={"forecast_model": fr.model, "device_id": device_id},
+            root_cause=root_cause,
+            contributing_factors=contributing_factors,
+            recommended_action=recommended_action,
+            confidence=confidence,
         )
 
     async def ask(self, question: str, object_name: str | None = None) -> dict:
