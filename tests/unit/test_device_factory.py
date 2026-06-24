@@ -19,11 +19,16 @@ def test_load_device_from_yaml():
 
 
 def test_load_all_devices():
-    devices = load_all_devices("config/devices")
-    assert len(devices) == 7
+    from pathlib import Path
 
+    devices = load_all_devices("config/devices")
+    # One device per YAML file in the config dir (grows as protocols are added).
+    expected = len(list(Path("config/devices").glob("*.yaml")))
+    assert len(devices) == expected
+
+    # The original BACnet/MQTT fleet must always be present.
     device_ids = {d.device_id for d in devices}
-    assert device_ids == {1001, 2001, 2002, 3001, 4001, 5001, 5002}
+    assert {1001, 2001, 2002, 3001, 4001, 5001, 5002} <= device_ids
 
 
 def test_load_all_devices_missing_dir():

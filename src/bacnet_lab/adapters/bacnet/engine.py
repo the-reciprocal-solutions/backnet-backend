@@ -25,6 +25,18 @@ class BAC0Engine(DeviceNetworkPort):
         self._devices: dict[int, Device] = {}
 
     async def start_device(self, device: Device, udp_port: int) -> None:
+        # Boot-safety (task B5): this engine owns ONLY real BACnet devices.
+        # Non-bacnet devices (mqtt/knx/modbus) carry the protocol tag as
+        # metadata for the discovery view + simulation; they must NOT open a
+        # BAC0 UDP stack. A 100+ device generated fleet is mostly non-bacnet,
+        # so skipping here keeps boot from spinning up dozens of UDP sockets.
+        if getattr(device, "protocol", "bacnet") != "bacnet":
+            logger.debug(
+                "Skipping BAC0 stack for non-bacnet device %s (protocol=%s)",
+                device.name, device.protocol,
+            )
+            return
+
         import BAC0
         from BAC0.core.devices.local.factory import ObjectFactory
 

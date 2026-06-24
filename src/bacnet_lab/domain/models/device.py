@@ -16,6 +16,8 @@ class Point:
     units: str = ""
     cov_increment: float = 0.0
     simulation: dict | None = None  # per-point signal model config (P0)
+    group_address: str = ""  # KNX group address, e.g. "1/2/3"; empty = not a KNX point
+    dpt: str = ""            # KNX datapoint type, e.g. "5.001"
 
     @property
     def object_identifier(self) -> str:
@@ -30,6 +32,7 @@ class Device:
     address: DeviceAddress | None = None
     status: DeviceStatus = DeviceStatus.ONLINE
     points: list[Point] = field(default_factory=list)
+    protocol: str = "bacnet"
 
     def get_point(self, object_type: PointType, instance: int) -> Point | None:
         for p in self.points:

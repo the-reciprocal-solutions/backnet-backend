@@ -88,6 +88,14 @@ async def events_page(request: Request) -> HTMLResponse:
     )
 
 
+@router.get("/discovery", response_class=HTMLResponse)
+async def discovery_page(request: Request) -> HTMLResponse:
+    return templates.TemplateResponse(
+        request,
+        "discovery.html", {"request": request}
+    )
+
+
 # HTMX partials
 
 @router.get("/partials/device-cards", response_class=HTMLResponse)

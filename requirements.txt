@@ -11,4 +11,5 @@ asyncpg>=0.30.0
 pydantic>=2.9.0
 pydantic-settings>=2.6.0
 python-multipart>=0.0.12
-pymodbus>=3.8.0 
+pymodbus>=3.8.0
+xknx>=2.0.0  # KNX/IP communication (lazy-imported; engine no-ops if absent)

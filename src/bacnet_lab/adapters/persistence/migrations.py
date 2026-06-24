@@ -87,8 +87,29 @@ TABLES = [
 ]
 
 
+# Idempotent ALTER TABLE migrations: (table, column, column_def).
+# SQLite's ADD COLUMN is not "IF NOT EXISTS", so each is guarded by a
+# PRAGMA table_info() check below so re-runs (and fresh DBs) are both safe.
+COLUMN_MIGRATIONS = [
+    ("devices", "protocol", "TEXT DEFAULT 'bacnet'"),
+    ("points", "group_address", "TEXT DEFAULT ''"),
+    ("points", "dpt", "TEXT DEFAULT ''"),
+]
+
+
+async def _column_exists(db: aiosqlite.Connection, table: str, column: str) -> bool:
+    cursor = await db.execute(f"PRAGMA table_info({table})")
+    rows = await cursor.fetchall()
+    return any(row[1] == column for row in rows)
+
+
 async def run_migrations(db_path: str) -> None:
     async with aiosqlite.connect(db_path) as db:
         for table_sql in TABLES:
             await db.execute(table_sql)
+        for table, column, column_def in COLUMN_MIGRATIONS:
+            if not await _column_exists(db, table, column):
+                await db.execute(
+                    f"ALTER TABLE {table} ADD COLUMN {column} {column_def}"
+                )
         await db.commit()

@@ -189,10 +189,18 @@ class PipelineService:
 
         # --- Narrate (WHY) via the grounded reasoning layer. ---
         explanation = None
+        root_cause = None
+        contributing_factors: list[str] = []
+        recommended_action = None
+        confidence = None
         if self._reasoning_enabled and self._copilot is not None:
             try:
                 result = await self._copilot.explain(point_name)
                 explanation = result.answer
+                root_cause = result.root_cause
+                contributing_factors = result.contributing_factors
+                recommended_action = result.recommended_action
+                confidence = result.confidence
             except Exception as e:
                 logger.warning("Reasoning failed for %s: %s", point_name, e)
         if explanation is None and prediction:
@@ -210,6 +218,10 @@ class PipelineService:
             failure_prob=failure_prob,
             eta_hours=eta_hours,
             explanation=explanation,
+            root_cause=root_cause,
+            contributing_factors=contributing_factors,
+            recommended_action=recommended_action,
+            confidence=confidence,
         ))
         self._enriched_total += 1
 

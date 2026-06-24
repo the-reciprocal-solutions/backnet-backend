@@ -40,9 +40,12 @@ flowchart LR
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/api/health` | Health check |
-| GET | `/api/devices` | List all devices |
-| GET | `/api/devices/{device_id}` | Device details with points |
+| GET | `/api/devices` | List all devices (includes `protocol`) |
+| GET | `/api/devices/protocols` | Each device with the protocol it speaks |
+| GET | `/api/devices/{device_id}` | Device details with points (includes `protocol`) |
 | PUT | `/api/devices/{device_id}/points` | Write a point value by name |
+| GET | `/api/discovery` | Devices grouped by protocol (bacnet/mqtt/knx/modbus) |
+| POST | `/api/discovery/import/ets` | Import a KNX ETS file → create a KNX device |
 | GET | `/api/scenarios` | List scenarios |
 | POST | `/api/scenarios/{scenario_id}/start` | Start a scenario |
 | POST | `/api/scenarios/{scenario_id}/stop` | Stop a scenario |
@@ -61,8 +64,10 @@ flowchart LR
 | GET | `/api/simulation/faults` | List active faults |
 | POST | `/api/simulation/faults` | Inject a fault |
 | DELETE | `/api/simulation/faults` | Clear fault(s) |
-| GET | `/api/history/{point}` | Time-series history (TimescaleDB) |
+| GET | `/api/history/{point}` | Time-series history for one point (TimescaleDB) |
 | GET | `/api/history/devices/latest` | Latest value per point, pivoted per device |
+| GET | `/api/timeseries/points` | Catalog of stored points (filter discovery) |
+| GET | `/api/timeseries/readings` | Filtered, paginated readings across many points |
 | GET | `/api/forecast/{point}` | Forecast a point (Chronos / naive) |
 | GET | `/api/forecast/info` | Forecast model availability |
 | GET | `/api/copilot/explain/{point}` | Grounded reasoning: forecast + why (LLM) |
@@ -125,8 +130,29 @@ Response `200`:
     "name": "AHU-01",
     "description": "Air Handling Unit",
     "status": "online",
-    "point_count": 12
+    "point_count": 12,
+    "protocol": "bacnet"
   }
+]
+```
+
+`protocol` is one of `bacnet`, `mqtt`, `knx`, `modbus`.
+
+### GET /api/devices/protocols
+
+Each device with the protocol it speaks — a lightweight map for grouping/filtering devices by protocol without pulling full device detail.
+
+```bash
+curl -u admin:admin123 https://bacnet.tools.thefusionapps.com/api/devices/protocols
+```
+
+Response `200`:
+
+```json
+[
+  {"device_id": 1001, "name": "AHU-01", "protocol": "bacnet"},
+  {"device_id": 7001, "name": "KNX-LIGHT-01", "protocol": "knx"},
+  {"device_id": 9001, "name": "Power Meter", "protocol": "modbus"}
 ]
 ```
 
@@ -146,6 +172,7 @@ Response `200`:
   "name": "AHU-01",
   "description": "Air Handling Unit",
   "status": "online",
+  "protocol": "bacnet",
   "points": [
     {
       "object_type": "analogInput",

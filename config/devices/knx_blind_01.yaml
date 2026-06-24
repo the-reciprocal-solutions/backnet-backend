@@ -1,0 +1,44 @@
+device_id: 7002
+name: "KNX-BLIND-01"
+description: "KNX Blind/Shutter Actuator - South Facade"
+protocol: "knx"
+points:
+  - object_type: analogOutput
+    object_instance: 1
+    object_name: "KNX-BLIND-01/Position"
+    description: "Blind position (0=open, 100=closed)"
+    present_value: 40.0
+    units: "percent"
+    cov_increment: 1.0
+    simulation:
+      model: random_walk
+      center: 40.0
+      step: 1.5
+      mean_reversion: 0.08
+      bounds: [0.0, 100.0]
+  - object_type: analogOutput
+    object_instance: 2
+    object_name: "KNX-BLIND-01/SlatAngle"
+    description: "Slat tilt angle"
+    present_value: 45.0
+    units: "degreesAngular"
+    cov_increment: 1.0
+    simulation:
+      model: random_walk
+      center: 45.0
+      step: 2.0
+      mean_reversion: 0.1
+      bounds: [0.0, 90.0]
+  - object_type: analogInput
+    object_instance: 1
+    object_name: "KNX-BLIND-01/MotorTemp"
+    description: "Drive motor temperature"
+    present_value: 28.0
+    units: "degreesCelsius"
+    cov_increment: 0.5
+    simulation:
+      model: random_walk
+      center: 28.0
+      step: 0.4
+      mean_reversion: 0.12
+      bounds: [10.0, 95.0]

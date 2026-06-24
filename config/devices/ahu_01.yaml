@@ -1,6 +1,7 @@
 device_id: 1001
 name: "AHU-01"
 description: "Air Handling Unit - Main Building"
+protocol: "bacnet"
 points:
   - object_type: analogInput
     object_instance: 1

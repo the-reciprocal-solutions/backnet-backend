@@ -76,6 +76,11 @@ class AnomalyEnriched(DomainEvent):
     failure_prob: float | None = None
     eta_hours: float | None = None
     explanation: str | None = None
+    # Deepened reasoning (additive — optional; null/empty when LLM disabled).
+    root_cause: str | None = None
+    contributing_factors: list[str] = field(default_factory=list)
+    recommended_action: str | None = None
+    confidence: str | None = None
     event_type: EventType = field(default=EventType.ANOMALY_ENRICHED, init=False)
 
     def to_message(self) -> dict:
@@ -83,12 +88,19 @@ class AnomalyEnriched(DomainEvent):
         reasoning = None
         if any(v is not None for v in (self.component, self.failure_prob,
                                        self.eta_hours, self.explanation)):
+            # FROZEN keys — must stay exactly as-is for the live frontend grid
+            # and webhook subscriber.
             reasoning = {
                 "component": self.component,
                 "failure_prob": self.failure_prob,
                 "eta_hours": self.eta_hours,
                 "explanation": self.explanation,
             }
+            # Additive deepened reasoning fields (alongside the frozen keys).
+            reasoning["root_cause"] = self.root_cause
+            reasoning["contributing_factors"] = self.contributing_factors
+            reasoning["recommended_action"] = self.recommended_action
+            reasoning["confidence"] = self.confidence
         return {
             "type": "anomaly",
             "device_id": self.device_id,

@@ -1,0 +1,66 @@
+device_id: 7003
+name: "KNX-RTC-01"
+description: "KNX Room Temperature Controller - Conference"
+protocol: "knx"
+points:
+  - object_type: analogInput
+    object_instance: 1
+    object_name: "KNX-RTC-01/RoomTemp"
+    description: "Room temperature"
+    present_value: 22.0
+    units: "degreesCelsius"
+    cov_increment: 0.2
+    simulation:
+      model: first_order_lag
+      target_point: "KNX-RTC-01/TempSetpoint"
+      tau_s: 180
+      noise: {sigma: 0.1}
+      bounds: [12.0, 40.0]
+  - object_type: analogValue
+    object_instance: 1
+    object_name: "KNX-RTC-01/TempSetpoint"
+    description: "Room temperature setpoint"
+    present_value: 22.0
+    units: "degreesCelsius"
+    cov_increment: 0.5
+    simulation:
+      model: constant
+      value: 22.0
+  - object_type: analogOutput
+    object_instance: 1
+    object_name: "KNX-RTC-01/ValvePosition"
+    description: "Heating/cooling valve position"
+    present_value: 35.0
+    units: "percent"
+    cov_increment: 1.0
+    simulation:
+      model: pid_actuator
+      process_var: "KNX-RTC-01/RoomTemp"
+      setpoint: "KNX-RTC-01/TempSetpoint"
+      kp: 8.0
+      ki: 0.05
+      kd: 0.0
+      reverse: true
+      bounds: [0.0, 100.0]
+  - object_type: analogInput
+    object_instance: 2
+    object_name: "KNX-RTC-01/Humidity"
+    description: "Relative humidity"
+    present_value: 45.0
+    units: "percentRelativeHumidity"
+    cov_increment: 1.0
+    simulation:
+      model: random_walk
+      center: 45.0
+      step: 1.0
+      mean_reversion: 0.1
+      bounds: [20.0, 95.0]
+  - object_type: binaryInput
+    object_instance: 1
+    object_name: "KNX-RTC-01/Presence"
+    description: "Occupancy presence"
+    present_value: false
+    simulation:
+      model: multistate_cycle
+      states: [false, false, true, true, true, false]
+      period_s: 300

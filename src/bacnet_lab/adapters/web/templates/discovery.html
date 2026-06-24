@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}Discovery — BACnet Lab{% endblock %}
+{% block content %}
+<h1>Discovery</h1>
+
+<article>
+    <header>ETS Import</header>
+    <form hx-post="/api/discovery/import/ets"
+          hx-encoding="multipart/form-data"
+          hx-target="#ets-result"
+          hx-swap="innerHTML"
+          hx-on::after-request="if(event.detail.successful){ htmx.trigger('#discovery-list','load'); }">
+        <label for="ets-file">Import KNX devices from ETS file (.knxproj / .xml / .csv)</label>
+        <input type="file" id="ets-file" name="file" accept=".knxproj,.xml,.csv" required>
+        <button type="submit">Import</button>
+    </form>
+    <div id="ets-result"></div>
+</article>
+
+<article>
+    <header>Discovered Devices</header>
+    <div id="discovery-list" hx-trigger="load, every 10s" hx-get="/api/discovery" hx-swap="none"
+         hx-on::after-request="renderDiscovery(event.detail.xhr.responseText)"></div>
+    <div id="discovery-tables"></div>
+    <p>Total devices: <strong id="discovery-total">0</strong></p>
+</article>
+
+<script>
+function renderDiscovery(text){
+  let data; try { data = JSON.parse(text); } catch(e){ return; }
+  const root = document.getElementById('discovery-tables');
+  root.innerHTML = '';
+  const protos = data.protocols || {};
+  for (const proto of ['bacnet','mqtt','knx','modbus']) {
+    const items = protos[proto] || [];
+    const h = document.createElement('article');
+    let rows = items.map(d => `<tr><td>${d.device_id}</td><td>${d.name}</td><td>${d.point_count}</td><td>${d.status}</td></tr>`).join('');
+    h.innerHTML = `<h3>${proto} <small>(${items.length})</small></h3>` +
+      (items.length ? `<table><thead><tr><th>ID</th><th>Name</th><th>Points</th><th>Status</th></tr></thead><tbody>${rows}</tbody></table>` : '<p><em>No devices.</em></p>');
+    root.appendChild(h);
+  }
+  const total = document.getElementById('discovery-total');
+  if (total) total.textContent = data.total ?? 0;
+}
+</script>
+{% endblock %}

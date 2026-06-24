@@ -4,28 +4,17 @@ import asyncio
 import logging
 import httpx
 
-from bacnet_lab.adapters.http.dependencies import get_container
-from bacnet_lab.infrastructure.config import load_settings
+from bacnet_lab.domain.events import AnomalyEnriched, WorkOrderAssigned
 
 logger = logging.getLogger(__name__)
 
 
 async def deliver_anomaly_to_webhook(anomaly: dict, url: str | None = None) -> None:
     """POST an enriched anomaly dict to a configured webhook URL.
-    
-    If the URL is not provided, it resolves it from the app container settings,
-    falling back to default file settings.
+
+    The caller is responsible for passing the configured ``url``.
     Retries once on failure and logs if it gives up.
     """
-    if url is None:
-        try:
-            container = get_container()
-            url = container.settings.webhook.url
-        except RuntimeError:
-            # Fallback for standalone test execution or when container is not initialized
-            settings = load_settings()
-            url = settings.webhook.url
-
     if not url:
         logger.warning("Webhook URL is not configured. Skipping delivery.")
         return
@@ -51,3 +40,26 @@ async def deliver_anomaly_to_webhook(anomaly: dict, url: str | None = None) -> N
             await asyncio.sleep(1.0)
 
     logger.error("Failed to deliver webhook after retrying. Giving up.")
+
+
+class WebhookSubscriber:
+    """Bus subscriber that fires a webhook for enriched anomalies + work orders.
+
+    Mirrors ``WsBroadcaster``: subscribes to the event bus and forwards
+    ``AnomalyEnriched`` and ``WorkOrderAssigned`` events (post-reasoning) to the
+    configured webhook URL using their frozen ``to_message()`` wire contract.
+    Exceptions are swallowed and logged so a failing webhook never blocks the bus.
+    """
+
+    def __init__(self, event_publisher, url: str, enabled: bool = True) -> None:
+        self.url = url
+        self.enabled = enabled
+        if enabled and url:
+            event_publisher.subscribe(self._on_event)
+
+    async def _on_event(self, event) -> None:
+        if isinstance(event, (AnomalyEnriched, WorkOrderAssigned)):
+            try:
+                await deliver_anomaly_to_webhook(event.to_message(), self.url)
+            except Exception as e:
+                logger.error("WebhookSubscriber failed to deliver event: %s", e)
