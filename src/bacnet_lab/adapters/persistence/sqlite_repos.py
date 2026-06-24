@@ -63,8 +63,9 @@ class SqliteDeviceRepository(DeviceRepositoryPort):
     async def save(self, device: Device) -> None:
         async with _connect(self._db_path) as db:
             await db.execute(
-                "INSERT OR REPLACE INTO devices (device_id, name, description, ip, port, status) "
-                "VALUES (?, ?, ?, ?, ?, ?)",
+                "INSERT OR REPLACE INTO devices "
+                "(device_id, name, description, ip, port, status, protocol) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
                 (
                     device.device_id,
                     device.name,
@@ -72,14 +73,16 @@ class SqliteDeviceRepository(DeviceRepositoryPort):
                     device.address.ip if device.address else "",
                     device.address.port if device.address else 0,
                     device.status.value,
+                    device.protocol,
                 ),
             )
             for point in device.points:
                 await db.execute(
                     "INSERT OR REPLACE INTO points "
                     "(device_id, object_type, object_instance, object_name, "
-                    "description, present_value, units, cov_increment) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    "description, present_value, units, cov_increment, "
+                    "group_address, dpt) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     (
                         device.device_id,
                         point.object_type.value,
@@ -89,6 +92,8 @@ class SqliteDeviceRepository(DeviceRepositoryPort):
                         str(point.present_value),
                         point.units,
                         point.cov_increment,
+                        point.group_address,
+                        point.dpt,
                     ),
                 )
             await db.commit()
@@ -115,6 +120,8 @@ class SqliteDeviceRepository(DeviceRepositoryPort):
                     present_value=_parse_value(pr["present_value"]),
                     units=pr["units"] or "",
                     cov_increment=pr["cov_increment"],
+                    group_address=pr["group_address"] or "",
+                    dpt=pr["dpt"] or "",
                 )
                 for pr in point_rows
             ]
@@ -126,6 +133,7 @@ class SqliteDeviceRepository(DeviceRepositoryPort):
                 address=DeviceAddress(ip=row["ip"], port=row["port"]) if row["ip"] else None,
                 status=DeviceStatus(row["status"]) if row["status"] else DeviceStatus.ONLINE,
                 points=points,
+                protocol=(row["protocol"] if "protocol" in row.keys() else None) or "bacnet",
             )
 
     async def list_all(self) -> list[Device]:

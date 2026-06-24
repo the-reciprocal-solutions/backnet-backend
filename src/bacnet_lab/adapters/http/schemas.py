@@ -20,6 +20,7 @@ class DeviceResponse(BaseModel):
     description: str
     status: str
     point_count: int
+    protocol: str
 
 
 class DeviceDetailResponse(BaseModel):
@@ -27,6 +28,7 @@ class DeviceDetailResponse(BaseModel):
     name: str
     description: str
     status: str
+    protocol: str
     points: list[PointResponse]
 
 

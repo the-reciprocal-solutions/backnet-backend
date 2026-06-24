@@ -43,6 +43,27 @@ class DeviceService:
     async def list_devices(self) -> list[Device]:
         return await self._repo.list_all()
 
+    async def save_device(self, device: Device) -> None:
+        await self._repo.save(device)
+        self._devices[device.device_id] = device
+
+    async def activate_device(self, device: Device) -> None:
+        """Start a newly-added device on the network engines so it is exposed
+        and (for KNX/Modbus) its live values are ingested. Idempotent enough for
+        runtime imports — failures degrade to ERROR status, never raise."""
+        udp_port = self._port_start + len(self._devices)
+        try:
+            await self._network.start_device(device, udp_port)
+            device.status = DeviceStatus.ONLINE
+        except Exception as e:
+            logger.error("Failed to activate device %s: %s", device.name, e)
+            device.status = DeviceStatus.ERROR
+        self._devices[device.device_id] = device
+
+    async def next_device_id(self) -> int:
+        devices = await self._repo.list_all()
+        return max((d.device_id for d in devices), default=8000) + 1
+
     async def get_device(self, device_id: int) -> Device | None:
         return await self._repo.get(device_id)
 

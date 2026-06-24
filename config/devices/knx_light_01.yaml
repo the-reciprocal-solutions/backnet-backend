@@ -1,0 +1,54 @@
+device_id: 7001
+name: "KNX-LIGHT-01"
+description: "KNX Lighting Dimmer - Open Office"
+protocol: "knx"
+points:
+  - object_type: analogOutput
+    object_instance: 1
+    object_name: "KNX-LIGHT-01/DimmerLevel"
+    description: "Dimmer output level"
+    present_value: 70.0
+    units: "percent"
+    cov_increment: 1.0
+    simulation:
+      model: random_walk
+      center: 70.0
+      step: 2.0
+      mean_reversion: 0.1
+      bounds: [0.0, 100.0]
+  - object_type: analogInput
+    object_instance: 1
+    object_name: "KNX-LIGHT-01/Illuminance"
+    description: "Measured illuminance"
+    present_value: 450.0
+    units: "luxes"
+    cov_increment: 10.0
+    simulation:
+      model: sine
+      mean: 450.0
+      amplitude: 120.0
+      period_h: 24
+      phase_h: 9.0
+      noise: {sigma: 8.0}
+      bounds: [0.0, 1000.0]
+  - object_type: analogInput
+    object_instance: 2
+    object_name: "KNX-LIGHT-01/BallastTemp"
+    description: "Driver/ballast temperature"
+    present_value: 32.0
+    units: "degreesCelsius"
+    cov_increment: 0.5
+    simulation:
+      model: random_walk
+      center: 32.0
+      step: 0.3
+      mean_reversion: 0.15
+      bounds: [15.0, 90.0]
+  - object_type: binaryOutput
+    object_instance: 1
+    object_name: "KNX-LIGHT-01/SwitchState"
+    description: "Lighting on/off"
+    present_value: true
+    simulation:
+      model: constant
+      value: true

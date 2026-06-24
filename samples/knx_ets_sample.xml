@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- ETS "Group Addresses" XML export (GroupAddress-Export schema).
+     Realistic commercial-building KNX project: 3-level group structure
+     (Main group / Middle group / Group address), building-zone naming, and a
+     representative spread of datapoint types (DPST-1 switching, DPST-5 scaling,
+     DPST-9 16-bit float, DPST-13 32-bit counters, DPST-14 IEEE float).
+     Import via Discovery -> Import KNX ETS file. -->
+<GroupAddress-Export xmlns="http://knx.org/xml/ga-export/01">
+
+  <!-- Main group 1: Lighting -->
+  <GroupRange Name="01 Lighting" RangeStart="2048" RangeEnd="4095">
+    <GroupRange Name="1/0 Ground Floor - Open Office" RangeStart="2048" RangeEnd="2303">
+      <GroupAddress Name="GF Open Office - Row A Switch" Address="1/0/1" DPTs="DPST-1-1" />
+      <GroupAddress Name="GF Open Office - Row A Status" Address="1/0/2" DPTs="DPST-1-11" />
+      <GroupAddress Name="GF Open Office - Row A Dim" Address="1/0/3" DPTs="DPST-3-7" />
+      <GroupAddress Name="GF Open Office - Row A Brightness" Address="1/0/4" DPTs="DPST-5-1" />
+      <GroupAddress Name="GF Open Office - Row B Switch" Address="1/0/5" DPTs="DPST-1-1" />
+      <GroupAddress Name="GF Open Office - Row B Brightness" Address="1/0/6" DPTs="DPST-5-1" />
+      <GroupAddress Name="GF Open Office - Lux Sensor" Address="1/0/7" DPTs="DPST-9-4" />
+      <GroupAddress Name="GF Open Office - Presence" Address="1/0/8" DPTs="DPST-1-18" />
+    </GroupRange>
+    <GroupRange Name="1/1 First Floor - Meeting Rooms" RangeStart="2304" RangeEnd="2559">
+      <GroupAddress Name="1F Meeting Room 1 Switch" Address="1/1/1" DPTs="DPST-1-1" />
+      <GroupAddress Name="1F Meeting Room 1 Brightness" Address="1/1/2" DPTs="DPST-5-1" />
+      <GroupAddress Name="1F Meeting Room 2 Switch" Address="1/1/3" DPTs="DPST-1-1" />
+      <GroupAddress Name="1F Meeting Room 2 Brightness" Address="1/1/4" DPTs="DPST-5-1" />
+      <GroupAddress Name="1F Corridor Scene" Address="1/1/10" DPTs="DPST-17-1" />
+    </GroupRange>
+  </GroupRange>
+
+  <!-- Main group 2: HVAC -->
+  <GroupRange Name="02 HVAC" RangeStart="4096" RangeEnd="6143">
+    <GroupRange Name="2/0 AHU-01 Air Handling Unit" RangeStart="4096" RangeEnd="4351">
+      <GroupAddress Name="AHU-01 Supply Air Temp" Address="2/0/1" DPTs="DPST-9-1" />
+      <GroupAddress Name="AHU-01 Return Air Temp" Address="2/0/2" DPTs="DPST-9-1" />
+      <GroupAddress Name="AHU-01 Setpoint" Address="2/0/3" DPTs="DPST-9-1" />
+      <GroupAddress Name="AHU-01 Supply Fan Cmd" Address="2/0/4" DPTs="DPST-1-1" />
+      <GroupAddress Name="AHU-01 Supply Fan Speed" Address="2/0/5" DPTs="DPST-5-1" />
+      <GroupAddress Name="AHU-01 Heating Valve" Address="2/0/6" DPTs="DPST-5-1" />
+      <GroupAddress Name="AHU-01 Cooling Valve" Address="2/0/7" DPTs="DPST-5-1" />
+      <GroupAddress Name="AHU-01 Filter Alarm" Address="2/0/8" DPTs="DPST-1-5" />
+      <GroupAddress Name="AHU-01 CO2 Level" Address="2/0/9" DPTs="DPST-9-8" />
+      <GroupAddress Name="AHU-01 Humidity" Address="2/0/10" DPTs="DPST-9-7" />
+    </GroupRange>
+    <GroupRange Name="2/1 Zone Controllers" RangeStart="4352" RangeEnd="4607">
+      <GroupAddress Name="Zone GF Room Temp" Address="2/1/1" DPTs="DPST-9-1" />
+      <GroupAddress Name="Zone GF Setpoint" Address="2/1/2" DPTs="DPST-9-1" />
+      <GroupAddress Name="Zone GF Valve Position" Address="2/1/3" DPTs="DPST-5-1" />
+      <GroupAddress Name="Zone GF HVAC Mode" Address="2/1/4" DPTs="DPST-20-102" />
+      <GroupAddress Name="Zone 1F Room Temp" Address="2/1/5" DPTs="DPST-9-1" />
+      <GroupAddress Name="Zone 1F Setpoint" Address="2/1/6" DPTs="DPST-9-1" />
+      <GroupAddress Name="Zone 1F Valve Position" Address="2/1/7" DPTs="DPST-5-1" />
+    </GroupRange>
+  </GroupRange>
+
+  <!-- Main group 3: Blinds / Shading -->
+  <GroupRange Name="03 Shading" RangeStart="6144" RangeEnd="8191">
+    <GroupRange Name="3/0 South Facade" RangeStart="6144" RangeEnd="6399">
+      <GroupAddress Name="South Facade Move Up/Down" Address="3/0/1" DPTs="DPST-1-8" />
+      <GroupAddress Name="South Facade Stop/Step" Address="3/0/2" DPTs="DPST-1-7" />
+      <GroupAddress Name="South Facade Position" Address="3/0/3" DPTs="DPST-5-1" />
+      <GroupAddress Name="South Facade Slat Angle" Address="3/0/4" DPTs="DPST-5-1" />
+      <GroupAddress Name="South Facade Wind Alarm" Address="3/0/5" DPTs="DPST-1-5" />
+    </GroupRange>
+  </GroupRange>
+
+  <!-- Main group 4: Energy Metering -->
+  <GroupRange Name="04 Metering" RangeStart="8192" RangeEnd="10239">
+    <GroupRange Name="4/0 Main Distribution Board" RangeStart="8192" RangeEnd="8447">
+      <GroupAddress Name="MDB Active Power" Address="4/0/1" DPTs="DPST-14-56" />
+      <GroupAddress Name="MDB Total Energy" Address="4/0/2" DPTs="DPST-13-13" />
+      <GroupAddress Name="MDB Voltage L1" Address="4/0/3" DPTs="DPST-14-27" />
+      <GroupAddress Name="MDB Current L1" Address="4/0/4" DPTs="DPST-14-19" />
+      <GroupAddress Name="MDB Power Factor" Address="4/0/5" DPTs="DPST-14-57" />
+    </GroupRange>
+  </GroupRange>
+
+</GroupAddress-Export>

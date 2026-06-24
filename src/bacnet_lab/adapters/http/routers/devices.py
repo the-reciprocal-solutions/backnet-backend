@@ -24,7 +24,19 @@ async def list_devices() -> list[DeviceResponse]:
             description=d.description,
             status=d.status.value,
             point_count=len(d.points),
+            protocol=d.protocol,
         )
+        for d in devices
+    ]
+
+
+@router.get("/protocols")
+async def list_device_protocols() -> list[dict]:
+    """Each device with the protocol it speaks (bacnet/mqtt/knx/modbus)."""
+    container = get_container()
+    devices = await container.device_service.list_devices()
+    return [
+        {"device_id": d.device_id, "name": d.name, "protocol": d.protocol}
         for d in devices
     ]
 
@@ -40,6 +52,7 @@ async def get_device(device_id: int) -> DeviceDetailResponse:
         name=device.name,
         description=device.description,
         status=device.status.value,
+        protocol=device.protocol,
         points=[
             PointResponse(
                 object_type=p.object_type.value,

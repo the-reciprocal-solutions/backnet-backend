@@ -11,6 +11,7 @@ from bacnet_lab.adapters.http.routers import (
     assets,
     copilot,
     devices,
+    discovery,
     endpoints,
     events,
     forecast,
@@ -20,6 +21,7 @@ from bacnet_lab.adapters.http.routers import (
     predictions,
     scenarios,
     simulation,
+    timeseries,
     ws,
 )
 
@@ -38,11 +40,13 @@ def create_app(auth_username: str = "", auth_password: str = "") -> FastAPI:
 
     app.include_router(health.router)
     app.include_router(devices.router)
+    app.include_router(discovery.router)
     app.include_router(scenarios.router)
     app.include_router(endpoints.router)
     app.include_router(events.router)
     app.include_router(simulation.router)
     app.include_router(history.router)
+    app.include_router(timeseries.router)
     app.include_router(forecast.router)
     app.include_router(copilot.router)
     app.include_router(metrics.router)

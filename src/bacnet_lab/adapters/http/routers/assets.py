@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Response
 
 from bacnet_lab.adapters.http.dependencies import get_container
 from bacnet_lab.adapters.http.schemas import (
@@ -75,8 +75,8 @@ async def update_asset(asset_id: str, req: AssetUpdate) -> AssetResponse:
     return _to_response(asset)
 
 
-@router.delete("/{asset_id}", status_code=204)
-async def delete_asset(asset_id: str) -> None:
+@router.delete("/{asset_id}", status_code=204, response_class=Response)
+async def delete_asset(asset_id: str):
     container = get_container()
     asset = await container.asset_service.get_asset(asset_id)
     if not asset:

@@ -3,7 +3,11 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 
-from bacnet_lab.adapters.bacnet.device_factory import load_all_devices, scale_devices
+from bacnet_lab.adapters.bacnet.device_factory import (
+    generate_fleet,
+    load_all_devices,
+    scale_devices,
+)
 from bacnet_lab.adapters.bacnet.engine import BAC0Engine
 from bacnet_lab.adapters.event_bus.in_process import InProcessEventPublisher
 from bacnet_lab.adapters.persistence.migrations import run_migrations
@@ -27,6 +31,7 @@ from bacnet_lab.adapters.scenarios.predictive_validation import (
 from bacnet_lab.adapters.scenarios.registry import ScenarioRegistry
 from bacnet_lab.adapters.web.websocket import ConnectionManager, WsBroadcaster
 from bacnet_lab.adapters.webhook.delivery import WebhookDeliveryAdapter
+from bacnet_lab.adapters.webhook.subscriber import WebhookSubscriber
 from bacnet_lab.application.alarm_service import AlarmService
 from bacnet_lab.application.anomaly_feed import AnomalyFeed
 from bacnet_lab.application.asset_service import AssetService
@@ -73,6 +78,7 @@ class Container:
     alarm_repo: SqliteAlarmRepository
     engine: BAC0Engine
     event_publisher: InProcessEventPublisher
+    knx_engine: object = None  # KnxEngine instance when KNX enabled, else None
 
 
 async def create_container(settings: AppSettings) -> Container:
@@ -85,6 +91,7 @@ async def create_container(settings: AppSettings) -> Container:
     # Multi-protocol exposure: wrap BACnet with MQTT/KNX engines when enabled.
     # BACnet stays primary (authoritative point state); others mirror writes.
     network: object = engine
+    knx_engine = None
     extra_engines = []
     if settings.mqtt.enabled:
         from bacnet_lab.adapters.mqtt.engine import MqttEngine
@@ -96,9 +103,10 @@ async def create_container(settings: AppSettings) -> Container:
         logger.info("MQTT protocol engine enabled (%s:%d)", settings.mqtt.host, settings.mqtt.port)
     if settings.knx.enabled:
         from bacnet_lab.adapters.knx.engine import KnxEngine
-        extra_engines.append(KnxEngine(
+        knx_engine = KnxEngine(
             gateway_ip=settings.knx.gateway_ip, gateway_port=settings.knx.gateway_port,
-        ))
+        )
+        extra_engines.append(knx_engine)
         logger.info("KNX protocol engine enabled (gateway=%s)",
                     settings.knx.gateway_ip or "multicast-routing")
     if extra_engines:
@@ -158,9 +166,17 @@ async def create_container(settings: AppSettings) -> Container:
     telemetry_service = TelemetryService(event_publisher=event_publisher)
     telemetry_service.set_device_service(device_service)
 
-    # Load and initialize devices (optionally scaled to a target count)
+    # Load and initialize devices.
+    # Two independent, OFF-by-default scaling paths (both no-op when 0):
+    #   * fleet_size  -> multi-protocol varied fleet (task B5). Preferred for
+    #     large 100+ fleets; most devices are non-bacnet so boot stays light.
+    #   * device_count -> legacy single-protocol clone scaling.
+    # fleet_size takes precedence when both are set.
     devices = load_all_devices(settings.devices_dir)
-    devices = scale_devices(devices, settings.simulation.device_count)
+    if settings.simulation.fleet_size > 0:
+        devices = generate_fleet(devices, settings.simulation.fleet_size)
+    else:
+        devices = scale_devices(devices, settings.simulation.device_count)
     logger.info("Device count after scaling: %d", len(devices))
     await device_service.initialize_devices(devices)
 
@@ -227,6 +243,10 @@ async def create_container(settings: AppSettings) -> Container:
     ws_manager = ConnectionManager()
     WsBroadcaster(event_publisher, ws_manager)
 
+    # Reasoning webhook (intern B6): fire a webhook on post-reasoning events
+    # (AnomalyEnriched + WorkOrderAssigned). Default OFF unless configured.
+    WebhookSubscriber(event_publisher, settings.webhook.url, enabled=settings.webhook.enabled)
+
     logger.info("Container initialized: %d devices loaded", len(devices))
 
     return Container(
@@ -252,4 +272,5 @@ async def create_container(settings: AppSettings) -> Container:
         alarm_repo=alarm_repo,
         engine=engine,
         event_publisher=event_publisher,
+        knx_engine=knx_engine,
     )

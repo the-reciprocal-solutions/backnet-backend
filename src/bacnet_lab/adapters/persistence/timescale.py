@@ -343,3 +343,137 @@ class TimescaleTimeSeries(TimeSeriesPort):
         except Exception as e:
             logger.error("TimescaleDB device_latest failed: %s", e)
             return []
+
+    async def list_points(
+        self,
+        device_id: int | None = None,
+        object_type: str | None = None,
+        q: str | None = None,
+        limit: int = 1000,
+    ) -> list[dict]:
+        """Catalog of stored points for filter discovery. Optional filters by
+        device, object_type, and a case-insensitive object_name substring."""
+        if not self.ready:
+            return []
+        conds: list[str] = []
+        params: list = []
+        if device_id is not None:
+            params.append(device_id)
+            conds.append(f"p.device_id = ${len(params)}")
+        if object_type:
+            params.append(object_type)
+            conds.append(f"p.object_type = ${len(params)}")
+        if q:
+            params.append(f"%{q}%")
+            conds.append(f"p.object_name ILIKE ${len(params)}")
+        where = (" WHERE " + " AND ".join(conds)) if conds else ""
+        params.append(min(max(limit, 1), 10000))
+        sql = (
+            "SELECT p.point_id, p.device_id, d.name AS device_name, p.object_name, "
+            "p.object_type, p.object_instance, p.units, p.value_kind, p.sim_model "
+            "FROM point p JOIN device d USING (device_id)"
+            f"{where} ORDER BY p.device_id, p.object_name LIMIT ${len(params)}"
+        )
+        try:
+            async with self._pool.acquire() as conn:
+                rows = await conn.fetch(sql, *params)
+                return [dict(r) for r in rows]
+        except Exception as e:
+            logger.error("TimescaleDB list_points failed: %s", e)
+            return []
+
+    async def query_readings(
+        self,
+        frm: datetime,
+        to: datetime,
+        resolution: str = "1m",
+        device_id: int | None = None,
+        object_names: list[str] | None = None,
+        object_type: str | None = None,
+        q: str | None = None,
+        order: str = "asc",
+        limit: int = 5000,
+        offset: int = 0,
+    ) -> list[dict]:
+        """Filtered, paginated readings across many points.
+
+        resolution: raw|1m|15m|1h. raw returns individual readings; the bucketed
+        resolutions return continuous-aggregate rows (avg/min/max/last/n).
+        Filters compose with AND. order applies to the time/bucket column.
+        """
+        if not self.ready:
+            return []
+        table = _RES_TABLE.get(resolution, "point_reading_1m")
+        is_raw = table == "point_reading"
+        tcol = "pr.time" if is_raw else "a.bucket"
+        direction = "DESC" if str(order).lower() == "desc" else "ASC"
+
+        params: list = [frm, to]
+        conds = [f"{tcol} BETWEEN $1 AND $2"]
+        if device_id is not None:
+            params.append(device_id)
+            conds.append(f"d.device_id = ${len(params)}")
+        if object_names:
+            params.append(object_names)
+            conds.append(f"p.object_name = ANY(${len(params)})")
+        if object_type:
+            params.append(object_type)
+            conds.append(f"p.object_type = ${len(params)}")
+        if q:
+            params.append(f"%{q}%")
+            conds.append(f"p.object_name ILIKE ${len(params)}")
+        where = " AND ".join(conds)
+        params.append(min(max(limit, 1), 20000))
+        lim_i = len(params)
+        params.append(max(offset, 0))
+        off_i = len(params)
+
+        if is_raw:
+            sql = (
+                f"SELECT pr.time AS t, d.device_id, d.name AS device_name, "
+                f"p.object_name, p.object_type, p.units, "
+                f"pr.value_num, pr.value_bool, pr.value_text "
+                f"FROM point_reading pr JOIN point p USING (point_id) "
+                f"JOIN device d USING (device_id) "
+                f"WHERE {where} ORDER BY {tcol} {direction} "
+                f"LIMIT ${lim_i} OFFSET ${off_i}"
+            )
+        else:
+            sql = (
+                f"SELECT a.bucket AS t, d.device_id, d.name AS device_name, "
+                f"p.object_name, p.object_type, p.units, "
+                f"a.avg, a.min, a.max, a.last_num, a.last_bool, a.n "
+                f"FROM {table} a JOIN point p USING (point_id) "
+                f"JOIN device d USING (device_id) "
+                f"WHERE {where} ORDER BY {tcol} {direction} "
+                f"LIMIT ${lim_i} OFFSET ${off_i}"
+            )
+        try:
+            async with self._pool.acquire() as conn:
+                rows = await conn.fetch(sql, *params)
+        except Exception as e:
+            logger.error("TimescaleDB query_readings failed: %s", e)
+            return []
+        out = []
+        for r in rows:
+            base = {
+                "time": r["t"].isoformat(),
+                "device_id": r["device_id"],
+                "device_name": r["device_name"],
+                "object_name": r["object_name"],
+                "object_type": r["object_type"],
+                "units": r["units"],
+            }
+            if is_raw:
+                base["value"] = (
+                    r["value_num"] if r["value_num"] is not None
+                    else (r["value_bool"] if r["value_bool"] is not None else r["value_text"])
+                )
+            else:
+                base.update({
+                    "avg": r["avg"], "min": r["min"], "max": r["max"],
+                    "last": r["last_num"] if r["last_num"] is not None else r["last_bool"],
+                    "n": r["n"],
+                })
+            out.append(base)
+        return out

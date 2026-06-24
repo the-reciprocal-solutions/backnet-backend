@@ -28,6 +28,7 @@ class ModbusSettings:
 @dataclass
 class WebhookSettings:
     url: str = ""
+    enabled: bool = False
 
 
 @dataclass
@@ -58,6 +59,11 @@ class SimulationSettings:
     fault_rate: float = 0.0
     # generative scaling (0 = no scaling, use YAML templates as-is)
     device_count: int = 0
+    # multi-protocol fleet generation (task B5): 0 = OFF (load base YAML only).
+    # When >= 1, generate a varied fleet of at least this many devices spanning
+    # all 4 protocols, each anomaly-capable. Most generated devices are
+    # non-bacnet (no UDP stack at boot — see device_factory.generate_fleet).
+    fleet_size: int = 0
 
 
 @dataclass
@@ -186,6 +192,7 @@ def load_settings(config_path: str = "config/settings.yaml") -> AppSettings:
         os.getenv("BACNET_LAB_MODBUS_UNIT_END", str(settings.modbus.unit_end))
     )
     settings.webhook.url = os.getenv("BACNET_LAB_WEBHOOK_URL", settings.webhook.url)
+    settings.webhook.enabled = _bool("BACNET_LAB_WEBHOOK_ENABLED", settings.webhook.enabled)
     sim = settings.simulation
     sim.enabled = _bool("BACNET_LAB_SIM_ENABLED", sim.enabled)
     sim.autostart = _bool("BACNET_LAB_SIM_AUTOSTART", sim.autostart)
@@ -202,6 +209,7 @@ def load_settings(config_path: str = "config/settings.yaml") -> AppSettings:
     sim.faults_enabled = _bool("BACNET_LAB_SIM_FAULTS_ENABLED", sim.faults_enabled)
     sim.fault_rate = float(os.getenv("BACNET_LAB_SIM_FAULT_RATE", str(sim.fault_rate)))
     sim.device_count = int(os.getenv("BACNET_LAB_SIM_DEVICE_COUNT", str(sim.device_count)))
+    sim.fleet_size = int(os.getenv("BACNET_LAB_SIM_FLEET_SIZE", str(sim.fleet_size)))
 
     ts = settings.timescale
     ts.enabled = _bool("BACNET_LAB_TSDB_ENABLED", ts.enabled)
