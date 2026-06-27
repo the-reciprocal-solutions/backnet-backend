@@ -61,6 +61,8 @@ async def get_device(device_id: int) -> DeviceDetailResponse:
                 description=p.description,
                 present_value=p.present_value,
                 units=p.units,
+                group_address=p.group_address,
+                dpt=p.dpt,
             )
             for p in device.points
         ],

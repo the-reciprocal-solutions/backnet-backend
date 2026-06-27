@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 
 from bacnet_lab.adapters.http.dependencies import get_container
 from bacnet_lab.adapters.knx.ets_import import parse_ets_file
@@ -59,15 +59,20 @@ async def discovery() -> dict:
 
 
 @router.post("/discovery/import/ets")
-async def import_ets(file: UploadFile = File(...)) -> dict:
+async def import_ets(
+    file: UploadFile = File(...),
+    password: str | None = Form(None),
+) -> dict:
     """Import a KNX ETS group-address export as a saved KNX device.
 
     Accepts an ETS CSV/XML/.knxproj upload, builds one Point per parseable
     group address, and persists a new device speaking the ``knx`` protocol.
+    ``password`` is the ETS project password, required only for password-
+    protected ``.knxproj`` projects (AES-encrypted).
     """
     content = await file.read()
     try:
-        entries = parse_ets_file(file.filename, content)
+        entries = parse_ets_file(file.filename, content, password=password or None)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
