@@ -256,8 +256,69 @@ def parse_ets_xml(content: bytes) -> list[EtsGroupAddress]:
 # .knxproj (ZIP archive)
 # --------------------------------------------------------------------------- #
 
-def parse_knxproj(content: bytes) -> list[EtsGroupAddress]:
-    """Parse a .knxproj archive by extracting group addresses from XML members."""
+def _is_encrypted_error(exc: Exception) -> bool:
+    s = str(exc).lower()
+    return "encrypted" in s or "password" in s
+
+
+def _read_nested_zip_xml(inner_bytes: bytes, password: str | None):
+    """Yield the .xml member bytes of a nested project zip.
+
+    ETS6 protects the project zip with AES (compress_type 99) when a project
+    password is set — stdlib ``zipfile`` cannot decrypt AES, so ``pyzipper`` is
+    used with the supplied password. Raises ``_Encrypted`` when a password is
+    required but missing/wrong.
+    """
+    # AES-encrypted members need pyzipper; plain members work with stdlib.
+    is_aes = False
+    try:
+        probe = zipfile.ZipFile(io.BytesIO(inner_bytes))
+        is_aes = any(i.compress_type == 99 or (i.flag_bits & 0x1) for i in probe.infolist())
+    except zipfile.BadZipFile:
+        return
+
+    if not is_aes:
+        with zipfile.ZipFile(io.BytesIO(inner_bytes)) as inner:
+            for im in inner.namelist():
+                if im.lower().endswith(".xml"):
+                    yield inner.read(im)
+        return
+
+    # Encrypted project — need pyzipper + password.
+    if not password:
+        raise _Encrypted("password required")
+    try:
+        import pyzipper
+    except ImportError as exc:  # pragma: no cover
+        raise ValueError(
+            "Password-protected .knxproj needs the 'pyzipper' package installed."
+        ) from exc
+    with pyzipper.AESZipFile(io.BytesIO(inner_bytes)) as inner:
+        inner.setpassword(password.encode("utf-8"))
+        for im in inner.namelist():
+            if not im.lower().endswith(".xml"):
+                continue
+            try:
+                yield inner.read(im)
+            except RuntimeError as exc:
+                # Bad password surfaces as a MAC/integrity or password error.
+                raise _Encrypted(f"bad password: {exc}") from exc
+
+
+class _Encrypted(Exception):
+    """Internal: a project zip needs a (correct) password."""
+
+
+def parse_knxproj(content: bytes, password: str | None = None) -> list[EtsGroupAddress]:
+    """Parse a .knxproj archive, extracting group addresses from XML members.
+
+    ETS stores the project two ways inside the outer archive:
+      * unzipped — ``P-XXXX/0.xml`` sits directly in the archive (plain exports);
+      * nested   — ``P-XXXX.zip`` holds ``0.xml``/``project.xml`` (ETS6 default),
+        AES-encrypted when the project has a password.
+    Walks the outer archive and descends one level into nested ``.zip`` members.
+    For password-protected projects pass ``password`` (the ETS project password).
+    """
     try:
         zf = zipfile.ZipFile(io.BytesIO(content))
     except zipfile.BadZipFile as exc:
@@ -265,32 +326,49 @@ def parse_knxproj(content: bytes) -> list[EtsGroupAddress]:
 
     seen: set[str] = set()
     results: list[EtsGroupAddress] = []
+    needs_password = False
+    bad_password = False
+
+    def _consume(data: bytes) -> None:
+        for ga in parse_ets_xml(data):
+            if ga.group_address in seen:
+                continue
+            seen.add(ga.group_address)
+            results.append(ga)
 
     with zf:
         for member in zf.namelist():
-            if not member.lower().endswith(".xml"):
-                continue
+            low = member.lower()
             try:
-                data = zf.read(member)
+                if low.endswith(".xml"):
+                    _consume(zf.read(member))
+                elif low.endswith(".zip"):
+                    try:
+                        for xml in _read_nested_zip_xml(zf.read(member), password):
+                            _consume(xml)
+                    except _Encrypted as exc:
+                        if password:
+                            bad_password = True
+                        else:
+                            needs_password = True
+                        logger.debug("Nested project zip %s: %s", member, exc)
             except RuntimeError as exc:
-                # zipfile raises RuntimeError for encrypted entries.
-                if "encrypted" in str(exc).lower() or "password" in str(exc).lower():
-                    raise ValueError(
-                        "Encrypted .knxproj not supported; export Group "
-                        "Addresses as CSV/XML instead"
-                    ) from exc
-                logger.debug("Skipping unreadable member %s: %s", member, exc)
-                continue
+                if _is_encrypted_error(exc):
+                    needs_password = True
+                else:
+                    logger.debug("Skipping unreadable member %s: %s", member, exc)
             except Exception:  # noqa: BLE001
                 logger.debug("Skipping unreadable member %s", member, exc_info=True)
-                continue
 
-            for ga in parse_ets_xml(data):
-                if ga.group_address in seen:
-                    continue
-                seen.add(ga.group_address)
-                results.append(ga)
-
+    if not results:
+        if bad_password:
+            raise ValueError("Wrong project password for this .knxproj.")
+        if needs_password:
+            raise ValueError(
+                "This .knxproj has a password-protected project. Supply the ETS "
+                "project password, or export the Group Addresses as CSV/XML and "
+                "import that instead."
+            )
     return results
 
 
@@ -298,13 +376,19 @@ def parse_knxproj(content: bytes) -> list[EtsGroupAddress]:
 # Dispatch
 # --------------------------------------------------------------------------- #
 
-def parse_ets_file(filename: str, content: bytes) -> list[EtsGroupAddress]:
-    """Dispatch to the right parser based on the filename extension."""
+def parse_ets_file(
+    filename: str, content: bytes, password: str | None = None
+) -> list[EtsGroupAddress]:
+    """Dispatch to the right parser based on the filename extension.
+
+    ``password`` is the ETS project password, only used for password-protected
+    ``.knxproj`` files.
+    """
     lower = (filename or "").lower()
     if lower.endswith(".csv"):
         return parse_ets_csv(content)
     if lower.endswith(".xml"):
         return parse_ets_xml(content)
     if lower.endswith(".knxproj"):
-        return parse_knxproj(content)
+        return parse_knxproj(content, password=password)
     raise ValueError(f"Unsupported ETS file type: {filename}")

@@ -12,6 +12,8 @@ class PointResponse(BaseModel):
     description: str
     present_value: float | int | bool | str
     units: str
+    group_address: str = ""  # KNX group address (e.g. "0/0/1"); empty for non-KNX
+    dpt: str = ""            # KNX datapoint type (e.g. "1.001"); empty for non-KNX
 
 
 class DeviceResponse(BaseModel):
