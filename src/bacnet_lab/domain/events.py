@@ -77,7 +77,7 @@ class AnomalyEnriched(DomainEvent):
     eta_hours: float | None = None
     explanation: str | None = None
     root_cause: str | None = None
-    contributing_factors: list[str] | None = None
+    contributing_factors: list[str] = field(default_factory=list)
     recommended_action: str | None = None
     confidence: float | None = None
     event_type: EventType = field(default=EventType.ANOMALY_ENRICHED, init=False)
@@ -87,7 +87,7 @@ class AnomalyEnriched(DomainEvent):
         reasoning = None
         if any(v is not None for v in (self.component, self.failure_prob,
                                        self.eta_hours, self.explanation,
-                                       self.root_cause, self.contributing_factors,
+                                       self.root_cause, (self.contributing_factors or None),
                                        self.recommended_action, self.confidence)):
             reasoning = {
                 "component": self.component,

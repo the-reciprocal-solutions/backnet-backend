@@ -50,6 +50,28 @@ async def list_points(
     }
 
 
+@router.get("/storage")
+async def storage_by_device() -> dict:
+    """Per-device storage footprint + daily growth in the time-series DB.
+
+    For each device: points stored, readings written per day, and estimated
+    bytes/day (rows/day × on-disk bytes/reading). Plus a fleet summary. Sizes
+    are estimates derived from live hypertable stats.
+    """
+    stats = await get_container().tsdb.storage_by_device()
+
+    def _mb(b):
+        return round((b or 0) / 1_048_576, 3)
+
+    for d in stats.get("devices", []):
+        d["mb_per_day"] = _mb(d.get("bytes_per_day"))
+    s = stats.get("summary", {})
+    if s:
+        s["hypertable_total_mb"] = _mb(s.get("hypertable_total_bytes"))
+        s["fleet_mb_per_day"] = _mb(s.get("fleet_bytes_per_day"))
+    return stats
+
+
 @router.get("/readings")
 async def query_readings(
     res: str = Query("1m", description="raw | 1m | 15m | 1h"),

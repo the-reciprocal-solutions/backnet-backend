@@ -19,6 +19,7 @@ from bacnet_lab.adapters.http.routers import (
     history,
     metrics,
     predictions,
+    protocols,
     scenarios,
     simulation,
     timeseries,
@@ -47,6 +48,7 @@ def create_app(auth_username: str = "", auth_password: str = "") -> FastAPI:
     app.include_router(simulation.router)
     app.include_router(history.router)
     app.include_router(timeseries.router)
+    app.include_router(protocols.router)
     app.include_router(forecast.router)
     app.include_router(copilot.router)
     app.include_router(metrics.router)

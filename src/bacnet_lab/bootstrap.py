@@ -79,6 +79,7 @@ class Container:
     engine: BAC0Engine
     event_publisher: InProcessEventPublisher
     knx_engine: object = None  # KnxEngine instance when KNX enabled, else None
+    discovery_service: object = None  # DiscoveryService (per-protocol live discovery)
 
 
 async def create_container(settings: AppSettings) -> Container:
@@ -196,6 +197,23 @@ async def create_container(settings: AppSettings) -> Container:
         settings=settings.timescale,
     )
 
+    # Live per-protocol device discovery (BACnet Who-Is, Modbus scan, MQTT
+    # sweep, KNX ETS/gateway). Each adapter is registered best-effort so a
+    # missing optional dependency never breaks boot.
+    from bacnet_lab.application.discovery_service import DiscoveryService
+    discovery_service = DiscoveryService(device_service=device_service, tsdb=tsdb)
+    for _import_path, _ctor in (
+        ("bacnet_lab.adapters.bacnet.discovery", lambda m: m.BACnetDiscovery(local_ip=settings.bacnet.ip)),
+        ("bacnet_lab.adapters.modbus.discovery", lambda m: m.ModbusDiscovery()),
+        ("bacnet_lab.adapters.mqtt.discovery", lambda m: m.MqttDiscovery()),
+        ("bacnet_lab.adapters.knx.discovery", lambda m: m.KnxDiscovery()),
+    ):
+        try:
+            _mod = __import__(_import_path, fromlist=["*"])
+            discovery_service.register(_ctor(_mod))
+        except Exception as _e:  # noqa: BLE001
+            logger.warning("Discovery adapter %s unavailable: %s", _import_path, _e)
+
     # Forecasting (Chronos + own DB access; naive fallback when torch absent)
     forecast_service = ForecastService(settings.timescale.dsn)
 
@@ -273,4 +291,5 @@ async def create_container(settings: AppSettings) -> Container:
         engine=engine,
         event_publisher=event_publisher,
         knx_engine=knx_engine,
+        discovery_service=discovery_service,
     )

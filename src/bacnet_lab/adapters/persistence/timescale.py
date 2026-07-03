@@ -344,6 +344,90 @@ class TimescaleTimeSeries(TimeSeriesPort):
             logger.error("TimescaleDB device_latest failed: %s", e)
             return []
 
+    async def storage_by_device(self) -> dict:
+        """Per-device storage footprint in the point_reading hypertable.
+
+        Bytes-per-row is derived from the live hypertable total size divided by
+        its estimated row count (``pg_class.reltuples``), so it reflects the
+        real on-disk cost including indexes and any compression. Per-device
+        bytes/day = (rows written in the last 24 h) × bytes/row. Values are
+        estimates — labelled as such — because Timescale stores rows by time
+        chunk, not by device.
+        """
+        if not self.ready:
+            return {"devices": [], "summary": {}}
+        try:
+            async with self._pool.acquire() as conn:
+                # hypertable_size() sums all child chunks — the real on-disk
+                # size. pg_total_relation_size on the parent is ~0 (chunks live
+                # in child tables). Fall back to the parent size if the Timescale
+                # function is unavailable (plain Postgres).
+                try:
+                    total_bytes = int(await conn.fetchval(
+                        "SELECT hypertable_size('point_reading')") or 0)
+                except Exception:
+                    total_bytes = int(await conn.fetchval(
+                        "SELECT pg_total_relation_size('point_reading')") or 0)
+                # Sum reltuples across the hypertable's chunks (the parent's own
+                # reltuples is 0). Fast — reads catalog estimates, not the data.
+                try:
+                    est_rows = int(await conn.fetchval(
+                        """
+                        SELECT COALESCE(sum(ch_cls.reltuples), 0)::bigint
+                        FROM _timescaledb_catalog.hypertable h
+                        JOIN _timescaledb_catalog.chunk ch ON ch.hypertable_id = h.id
+                        JOIN pg_class ch_cls ON ch_cls.relname = ch.table_name
+                        WHERE h.table_name = 'point_reading' AND NOT ch.dropped
+                        """
+                    ) or 0)
+                except Exception:
+                    est_rows = 0
+                if est_rows <= 0:  # fallback: exact count (heavier but accurate)
+                    est_rows = int(await conn.fetchval(
+                        "SELECT count(*)::bigint FROM point_reading") or 0)
+                bytes_per_row = (total_bytes / est_rows) if est_rows > 0 else 0.0
+
+                rows = await conn.fetch(
+                    """
+                    SELECT d.device_id, d.name,
+                           count(DISTINCT p.point_id) AS points,
+                           count(pr.point_id)          AS rows_24h
+                    FROM device d
+                    JOIN point p USING (device_id)
+                    LEFT JOIN point_reading pr
+                      ON pr.point_id = p.point_id
+                     AND pr.time > now() - interval '24 hours'
+                    GROUP BY d.device_id, d.name
+                    ORDER BY rows_24h DESC
+                    """
+                )
+            devices = []
+            total_rows_24h = 0
+            for r in rows:
+                rows_24h = int(r["rows_24h"] or 0)
+                total_rows_24h += rows_24h
+                devices.append({
+                    "device_id": r["device_id"],
+                    "name": r["name"],
+                    "points": int(r["points"] or 0),
+                    "rows_per_day": rows_24h,
+                    "bytes_per_day": round(rows_24h * bytes_per_row),
+                    "bytes_per_reading": round(bytes_per_row, 2),
+                })
+            return {
+                "devices": devices,
+                "summary": {
+                    "hypertable_total_bytes": total_bytes,
+                    "estimated_rows": est_rows,
+                    "bytes_per_reading": round(bytes_per_row, 2),
+                    "fleet_rows_per_day": total_rows_24h,
+                    "fleet_bytes_per_day": round(total_rows_24h * bytes_per_row),
+                },
+            }
+        except Exception as e:
+            logger.error("TimescaleDB storage_by_device failed: %s", e)
+            return {"devices": [], "summary": {}}
+
     async def list_points(
         self,
         device_id: int | None = None,
