@@ -104,6 +104,40 @@ class DeviceService:
             raise ValueError(f"Point '{point_name}' not found on device {device_id}")
         await self.write_point(device_id, point.object_type, point.object_instance, value)
 
+    async def ingest_point_value(
+        self, device_id: int, point_name: str, value: PointValue
+    ) -> bool:
+        """Ingest a value READ FROM an external device (poller/gateway inbound).
+
+        Unlike ``write_point``/``write_point_by_name`` — which are the COMMAND
+        path and push the value out through the network engine's local object —
+        this is the INGEST path: the value already came off the wire, so it only
+        updates in-memory state, persists it, and publishes ``PointValueChanged``
+        (which the historian samples and the API/dashboard render). It never calls
+        the network engine, so it works for devices this process does not expose
+        (real controllers we poll as a client). Returns True if the value changed.
+        """
+        device = self._devices.get(device_id)
+        if not device:
+            raise ValueError(f"Device {device_id} not found")
+        point = device.get_point_by_name(point_name)
+        if not point:
+            raise ValueError(f"Point '{point_name}' not found on device {device_id}")
+        old_value = point.present_value
+        if old_value == value:
+            return False
+        point.present_value = value
+        await self._repo.update_point_value(device_id, point.object_name, value)
+        await self._events.publish(
+            PointValueChanged(
+                device_id=device_id,
+                point_name=point.object_name,
+                old_value=old_value,
+                new_value=value,
+            )
+        )
+        return True
+
     async def set_device_status(self, device_id: int, status: DeviceStatus) -> None:
         device = self._devices.get(device_id)
         if not device:

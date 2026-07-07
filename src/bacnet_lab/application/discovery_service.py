@@ -53,11 +53,12 @@ def _point_type(raw: str) -> PointType:
 
 
 class DiscoveryService:
-    def __init__(self, device_service, tsdb=None) -> None:
+    def __init__(self, device_service, tsdb=None, real_poller=None) -> None:
         self._adapters: dict[str, ProtocolDiscoveryPort] = {}
         self._jobs: dict[str, ScanJob] = {}
         self._ds = device_service
         self._tsdb = tsdb
+        self._real_poller = real_poller
 
     # -- registry ---------------------------------------------------------- #
     def register(self, adapter: ProtocolDiscoveryPort) -> None:
@@ -140,8 +141,14 @@ class DiscoveryService:
         return results
 
     async def _materialize(self, disc: DiscoveredDevice) -> Device:
+        # Real BACnet controllers are READ as a client (polled), not exposed on
+        # the network — so they go to the poller, not activate_device. Keep their
+        # real device instance as the id (only reassign if missing).
+        is_bacnet = disc.protocol == "bacnet" and self._real_poller is not None
         device_id = disc.device_id
-        if device_id is None or self._ds.get_in_memory_device(device_id):
+        if device_id is None:
+            device_id = await self._ds.next_device_id()
+        elif not is_bacnet and self._ds.get_in_memory_device(device_id):
             device_id = await self._ds.next_device_id()
         points = [
             Point(
@@ -163,12 +170,17 @@ class DiscoveryService:
             points=points,
         )
         await self._ds.save_device(device)
-        await self._ds.activate_device(device)
-        if self._tsdb is not None and getattr(self._tsdb, "ready", False):
-            try:
-                await self._tsdb.register_devices([device])
-            except Exception:  # noqa: BLE001 — historian is best-effort
-                logger.debug("tsdb register failed for %s", device.device_id, exc_info=True)
+        if is_bacnet:
+            # Hand to the poller: it starts reading presentValue on the poll loop
+            # and registers the device with the historian itself.
+            await self._real_poller.attach_device(device, disc.address)
+        else:
+            await self._ds.activate_device(device)
+            if self._tsdb is not None and getattr(self._tsdb, "ready", False):
+                try:
+                    await self._tsdb.register_devices([device])
+                except Exception:  # noqa: BLE001 — historian is best-effort
+                    logger.debug("tsdb register failed for %s", device.device_id, exc_info=True)
         return device
 
     # -- internal ---------------------------------------------------------- #
