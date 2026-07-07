@@ -1,14 +1,24 @@
 """BACnet/IP live discovery adapter.
 
-Runs a real BACnet Who-Is via BAC0 (bacpypes3) and turns the I-Am responses
-into transient ``DiscoveredDevice`` results. BAC0 is imported lazily and every
-scan disconnects its network in a ``finally`` block so a failed/empty scan never
-leaks a UDP stack or hangs the worker.
+Discovers real controllers by **subnet sweep + wildcard device read**, not
+Who-Is. Field controllers on the target site (Distech ECY series) answer
+``ReadProperty`` but ignore Who-Is entirely and reply only to a client bound to
+source UDP 47808 — so a Who-Is broadcast (from any port) finds nothing. Instead
+we read the wildcard device instance ``4194303`` on every host in the subnet;
+a device answers with its real ``objectIdentifier``/``objectName``. When
+``deep_scan`` is set, each device's ``objectList`` and per-object
+name/value/units are read (single ReadProperty calls — these controllers reject
+ReadPropertyMultiple) so the wizard can map real points.
+
+The scan shares the real poller's single UDP-47808 client when one is running
+(the poller and discovery must not fight over that socket); otherwise it opens
+its own short-lived stack and disconnects it in a ``finally`` block.
 """
 
 from __future__ import annotations
 
 import asyncio
+import ipaddress
 import logging
 import socket
 
@@ -16,6 +26,29 @@ from bacnet_lab.domain.models.discovery import DiscoveredDevice, DiscoveredPoint
 from bacnet_lab.ports.discovery import DiscoveryError, ProtocolDiscoveryPort
 
 logger = logging.getLogger(__name__)
+
+# Hard cap on per-device object reads so a huge controller (or a KNX->BACnet
+# gateway exposing hundreds of group addresses) never makes one scan run away.
+_DEFAULT_MAX_OBJECTS = 300
+# BACnet "unconfigured" wildcard device instance. Reading it targets whatever
+# device answers at an address, which reports its real id/name back.
+_WILDCARD_INSTANCE = 4194303
+
+# bacpypes3 dashed object-type names (as they appear in objectList) -> the
+# camelCase form the BAC0 read parser expects. Only readable point objects are
+# mapped; structural objects (device/file/program/schedule/...) are skipped.
+_DASHED_TO_CAMEL = {
+    "analog-input": "analogInput",
+    "analog-output": "analogOutput",
+    "analog-value": "analogValue",
+    "binary-input": "binaryInput",
+    "binary-output": "binaryOutput",
+    "binary-value": "binaryValue",
+    "multi-state-input": "multiStateInput",
+    "multi-state-output": "multiStateOutput",
+    "multi-state-value": "multiStateValue",
+}
+_ANALOG_CAMEL = ("analogInput", "analogOutput", "analogValue")
 
 
 def _detect_host_ip() -> str:
@@ -31,136 +64,253 @@ def _detect_host_ip() -> str:
         s.close()
 
 
-def _free_udp_port() -> int:
-    """Grab a free UDP port so discovery never collides with the simulator."""
-    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+def _camel_type(raw: object) -> str | None:
+    """Map an objectList type token (dashed or camel) to a readable camel name."""
+    s = str(raw)
+    if s in _DASHED_TO_CAMEL:
+        return _DASHED_TO_CAMEL[s]
+    if s in _DASHED_TO_CAMEL.values():
+        return s
+    return None
+
+
+def _expand_range(frm: str, to: str) -> list[str]:
+    """Inclusive list of IPv4 addresses between two dotted quads."""
     try:
-        s.bind(("", 0))
-        return s.getsockname()[1]
-    finally:
-        s.close()
+        a = int(ipaddress.IPv4Address(frm.strip()))
+        b = int(ipaddress.IPv4Address(to.strip()))
+    except (ValueError, AttributeError):
+        return []
+    if b < a:
+        a, b = b, a
+    if b - a > 65535:  # safety bound
+        b = a + 65535
+    return [str(ipaddress.IPv4Address(i)) for i in range(a, b + 1)]
 
 
 class BACnetDiscovery(ProtocolDiscoveryPort):
     protocol = "bacnet"
     label = "BACnet/IP"
 
-    def __init__(self, local_ip: str = "0.0.0.0") -> None:
+    def __init__(self, local_ip: str = "0.0.0.0", poller=None) -> None:
         self._local_ip = local_ip
+        self._poller = poller  # RealBACnetPoller — shares its 47808 client
 
     def config_schema(self) -> dict:
         return {
             "fields": [
                 {"name": "scan_mode", "label": "Scan Mode", "type": "select",
-                 "options": ["broadcast", "ip_range"], "default": "broadcast", "required": True},
-                {"name": "ip_range_from", "label": "IP Range From", "type": "ip", "default": "", "required": False, "placeholder": "192.168.10.1"},
-                {"name": "ip_range_to", "label": "IP Range To", "type": "ip", "default": "", "required": False, "placeholder": "192.168.10.255"},
+                 "options": ["subnet_sweep", "ip_range"], "default": "subnet_sweep", "required": True},
+                {"name": "ip_range_from", "label": "IP Range From", "type": "ip", "default": "", "required": False, "placeholder": "192.168.20.1"},
+                {"name": "ip_range_to", "label": "IP Range To", "type": "ip", "default": "", "required": False, "placeholder": "192.168.21.254"},
+                {"name": "cidr", "label": "Subnet Prefix (CIDR bits)", "type": "number", "default": 23, "required": True,
+                 "placeholder": "23 for a /23 (192.168.20.0-192.168.21.255) network"},
                 {"name": "port", "label": "Port", "type": "number", "default": 47808, "required": True},
-                {"name": "timeout_s", "label": "Timeout (s)", "type": "number", "default": 5, "required": True},
-                {"name": "retries", "label": "Retries", "type": "number", "default": 2, "required": False},
+                {"name": "timeout_s", "label": "Per-host Timeout (s)", "type": "number", "default": 2, "required": True},
+                {"name": "concurrency", "label": "Concurrency", "type": "number", "default": 50, "required": False},
                 {"name": "deep_scan", "label": "Deep Scan (read all objects)", "type": "bool", "default": True, "required": False},
+                {"name": "max_objects", "label": "Max Objects / Device", "type": "number", "default": _DEFAULT_MAX_OBJECTS, "required": False},
             ],
-            "notes": "BACnet uses Who-Is broadcast discovery; IP range narrows the target subnet.",
+            "notes": ("Sweeps every host in the subnet and reads the wildcard device instance "
+                      "(4194303) to enumerate controllers — these devices answer ReadProperty but "
+                      "not Who-Is. Set CIDR to the real mask (e.g. 23 for a /23) so the whole "
+                      "subnet is covered. Deep scan reads each device's objectList and point values."),
         }
 
+    # -- entry point ------------------------------------------------------- #
     async def discover(self, config: dict) -> list[DiscoveredDevice]:
-        timeout_s = float(config.get("timeout_s", 5))
+        scan_mode = str(config.get("scan_mode") or "subnet_sweep")
+        cidr = int(config.get("cidr") or 23)
+        port = int(config.get("port") or 47808)
+        timeout_s = float(config.get("timeout_s") or 2)
         deep_scan = bool(config.get("deep_scan", True))
-        rng_from = (config.get("ip_range_from") or "").strip()
-        rng_to = (config.get("ip_range_to") or "").strip()
+        max_objects = int(config.get("max_objects") or _DEFAULT_MAX_OBJECTS)
+        concurrency = max(1, int(config.get("concurrency") or 50))
 
+        targets = self._targets(scan_mode, config, cidr)
+        if not targets:
+            raise DiscoveryError("No scan targets (check scan_mode / ip_range / cidr)")
+
+        client, own = await self._client(port, cidr)
+        if client is None:
+            raise DiscoveryError(
+                f"No BACnet client available on port {port} (busy?). "
+                "Many controllers reply only to source port 47808.")
         try:
-            import BAC0
-        except ImportError as e:  # pragma: no cover
-            raise DiscoveryError("BAC0 not installed; BACnet discovery unavailable") from e
-
-        bacnet = None
-        try:
-            # BAC0.lite needs a running loop (we are in one). Bind to the local
-            # interface; "0.0.0.0" lets BAC0 auto-pick.
-            # BAC0/bacpypes3 needs an IP with subnet mask (CIDR). Bind on a free
-            # UDP port so we never collide with the simulator, which already
-            # holds 47808+. Who-Is still broadcasts to the standard dest port.
-            ip = self._local_ip if self._local_ip and self._local_ip != "0.0.0.0" else _detect_host_ip()
-            bind = f"{ip}/24:{_free_udp_port()}"
-            try:
-                bacnet = BAC0.lite(ip=bind)
-            except Exception as e:
-                raise DiscoveryError(f"BACnet stack init failed: {e}") from e
-
-            # Give the async stack a moment to come up.
-            await asyncio.sleep(0.5)
-
-            # Who-Is — broadcast, or constrained to an address range.
-            # BAC0 2025.x (bacpypes3) exposes ``who_is``; older releases used
-            # ``whois``. Bind to whichever this version provides.
-            who_is = getattr(bacnet, "who_is", None) or getattr(bacnet, "whois", None)
-            if who_is is None:
-                raise DiscoveryError("BAC0 instance exposes no who_is/whois method")
-            # bacpypes3's who_is takes device-instance limits, not an IP range,
-            # so we always broadcast and filter by address after collecting.
-            try:
-                coro_or_val = who_is()
-                if asyncio.iscoroutine(coro_or_val):
-                    await asyncio.wait_for(coro_or_val, timeout=timeout_s)
-                else:
-                    await asyncio.sleep(min(timeout_s, 5))
-            except asyncio.TimeoutError:
-                pass  # whatever answered within the window is fine
-            except Exception as e:
-                raise DiscoveryError(f"BACnet Who-Is failed: {e}") from e
-
-            return self._collect(bacnet, deep_scan)
-        finally:
-            if bacnet is not None:
+            logger.info("BACnet sweep: %d host(s), wildcard device read, port %d", len(targets), port)
+            responders = await self._sweep(client, targets, port, timeout_s, concurrency)
+            logger.info("BACnet sweep: %d controller(s) responded", len(responders))
+            out: list[DiscoveredDevice] = []
+            for ip, inst in responders.items():
                 try:
-                    disc = getattr(bacnet, "_disconnect", None) or getattr(bacnet, "disconnect", None)
+                    out.append(await self._build(client, ip, port, inst, deep_scan, max_objects))
+                except Exception:  # noqa: BLE001 — one bad device never kills the scan
+                    logger.debug("build failed for %s (%s)", ip, inst, exc_info=True)
+            out.sort(key=lambda d: d.device_id if d.device_id is not None else 1 << 30)
+            return out
+        finally:
+            if own and client is not None:
+                try:
+                    disc = getattr(client, "_disconnect", None) or getattr(client, "disconnect", None)
                     if disc:
                         res = disc()
                         if asyncio.iscoroutine(res):
                             await res
                 except Exception:  # noqa: BLE001
-                    logger.debug("BACnet disconnect error", exc_info=True)
+                    logger.debug("BACnet discovery disconnect error", exc_info=True)
 
-    def _collect(self, bacnet, deep_scan: bool) -> list[DiscoveredDevice]:
-        """Read whatever the BAC0 instance discovered, defensively across versions."""
-        out: list[DiscoveredDevice] = []
-        # BAC0 exposes discovered devices as a list of tuples on .discoveredDevices
-        # (commonly (name, vendor, address, device_id)) or via .devices.
-        rows = getattr(bacnet, "discoveredDevices", None)
-        if not rows:
-            rows = getattr(bacnet, "devices", None)
-        if not rows:
-            return out
-        for row in rows:
-            name, vendor, address, device_id = "", "", "", None
+    # -- scan scope -------------------------------------------------------- #
+    def _bind_ip(self) -> str:
+        ip = self._local_ip
+        if not ip or ip == "0.0.0.0":
+            return _detect_host_ip()
+        return ip
+
+    def _targets(self, scan_mode: str, config: dict, cidr: int) -> list[str]:
+        if scan_mode == "ip_range":
+            frm = str(config.get("ip_range_from") or "").strip()
+            to = str(config.get("ip_range_to") or "").strip()
+            if frm and to:
+                return _expand_range(frm, to)
+            # fall through to subnet sweep if the range is incomplete
+        ip = self._bind_ip()
+        try:
+            net = ipaddress.ip_network(f"{ip}/{cidr}", strict=False)
+        except ValueError:
+            return []
+        me = self._bind_ip()
+        return [str(h) for h in net.hosts() if str(h) != me]
+
+    # -- client ------------------------------------------------------------ #
+    async def _client(self, port: int, cidr: int):
+        """Reuse the poller's live client if present, else open our own stack.
+
+        Returns ``(client, own)`` where ``own`` is True when we created the
+        stack (and must disconnect it afterwards).
+        """
+        borrowed = self._poller.borrow_client() if self._poller is not None else None
+        if borrowed is not None:
+            return borrowed, False
+        try:
+            import BAC0
+        except ImportError as e:  # pragma: no cover
+            raise DiscoveryError("BAC0 not installed; BACnet discovery unavailable") from e
+        ip = self._bind_ip()
+        try:
+            client = BAC0.lite(ip=f"{ip}/{cidr}:{port}")
+        except Exception as e:
+            raise DiscoveryError(f"BACnet stack init failed on {ip}/{cidr}:{port}: {e}") from e
+        await asyncio.sleep(0.5)
+        return client, True
+
+    # -- sweep ------------------------------------------------------------- #
+    async def _sweep(self, client, ips: list[str], port: int,
+                     timeout_s: float, concurrency: int) -> dict[str, int]:
+        """Read the wildcard device instance on every host; collect {ip: real_id}."""
+        found: dict[str, int] = {}
+        sem = asyncio.Semaphore(concurrency)
+
+        async def probe(ip: str) -> None:
+            addr = ip if port == 47808 else f"{ip}:{port}"
+            async with sem:
+                try:
+                    oid = await asyncio.wait_for(
+                        client.read(f"{addr} device {_WILDCARD_INSTANCE} objectIdentifier"),
+                        timeout=timeout_s)
+                except Exception:  # noqa: BLE001 — dead host / non-BACnet / timeout
+                    return
+            inst = None
+            if isinstance(oid, (tuple, list)) and len(oid) == 2:
+                inst = oid[1]
+            if isinstance(inst, int):
+                found[ip] = inst
+
+        await asyncio.gather(*(probe(ip) for ip in ips))
+        return found
+
+    # -- per-device build -------------------------------------------------- #
+    async def _build(self, client, ip: str, port: int, inst: int,
+                     deep_scan: bool, max_objects: int) -> DiscoveredDevice:
+        addr = ip if port == 47808 else f"{ip}:{port}"
+        name = f"BACnet {inst}"
+        vendor = model = ""
+        for prop in ("objectName", "vendorName", "modelName"):
             try:
-                if isinstance(row, (list, tuple)):
-                    vals = list(row)
-                    # Heuristic: find the int (device id) and an address-looking str.
-                    for v in vals:
-                        if isinstance(v, int) and device_id is None:
-                            device_id = v
-                        elif isinstance(v, str) and (":" in v or "." in v) and not address:
-                            address = v
-                    name = str(vals[0]) if vals else ""
-                    if len(vals) > 1 and isinstance(vals[1], str):
-                        vendor = vals[1]
-                elif isinstance(row, dict):
-                    name = str(row.get("name", ""))
-                    vendor = str(row.get("vendor", ""))
-                    address = str(row.get("address", ""))
-                    device_id = row.get("device_id") or row.get("deviceId")
-            except Exception:  # noqa: BLE001
+                v = await asyncio.wait_for(client.read(f"{addr} device {inst} {prop}"), timeout=4)
+            except Exception:  # noqa: BLE001 — identity reads are best-effort
                 continue
-            ref = f"{address or 'bacnet'}-{device_id if device_id is not None else len(out)}"
-            objects: list[DiscoveredPoint] = []
-            # Deep object read is best-effort and version-specific; left empty
-            # when unavailable so the scan stays fast and never hangs.
-            out.append(DiscoveredDevice(
-                ref=ref, protocol="bacnet",
-                name=name or f"BACnet {device_id}", address=address,
-                device_id=device_id if isinstance(device_id, int) else None,
-                vendor=vendor, object_count=len(objects), objects=objects,
+            if not v:
+                continue
+            if prop == "objectName":
+                name = str(v)
+            elif prop == "vendorName":
+                vendor = str(v)
+            else:
+                model = str(v)
+
+        objects: list[DiscoveredPoint] = []
+        if deep_scan:
+            objects = await self._read_objects(client, addr, inst, max_objects)
+
+        vend = " ".join(x for x in (vendor, model) if x)
+        return DiscoveredDevice(
+            ref=f"{ip}-{inst}", protocol="bacnet",
+            name=name, address=ip, device_id=inst,
+            vendor=vend, object_count=len(objects), objects=objects,
+        )
+
+    async def _read_objects(self, client, addr: str, device_id: int,
+                            max_objects: int) -> list[DiscoveredPoint]:
+        """Read objectList then each point's name/value/units via single reads.
+
+        Single ReadProperty throughout — these controllers reject RPM. Every
+        read is guarded so a slow/absent point degrades to a partial point
+        rather than aborting the device.
+        """
+        try:
+            obj_list = await asyncio.wait_for(
+                client.read(f"{addr} device {device_id} objectList"), timeout=10)
+        except Exception:  # noqa: BLE001
+            logger.debug("objectList read failed for %s", addr, exc_info=True)
+            return []
+        if not isinstance(obj_list, (list, tuple)):
+            return []
+
+        points: list[DiscoveredPoint] = []
+        for entry in obj_list[:max_objects]:
+            try:
+                otype, oinst = entry  # ObjectIdentifier -> (type, instance)
+            except (TypeError, ValueError):
+                continue
+            camel = _camel_type(otype)
+            if camel is None or not isinstance(oinst, int):
+                continue  # skip device/file/program/etc.
+            name = f"{camel}/{oinst}"
+            present_value = None
+            units = ""
+            try:
+                nm = await asyncio.wait_for(client.read(f"{addr} {camel} {oinst} objectName"), timeout=4)
+                if nm:
+                    name = str(nm)
+            except Exception:  # noqa: BLE001
+                logger.debug("objectName read failed %s %s:%s", addr, camel, oinst, exc_info=True)
+            try:
+                present_value = await asyncio.wait_for(
+                    client.read(f"{addr} {camel} {oinst} presentValue"), timeout=4)
+            except Exception:  # noqa: BLE001
+                logger.debug("presentValue read failed %s %s:%s", addr, camel, oinst, exc_info=True)
+            if camel in _ANALOG_CAMEL:
+                try:
+                    u = await asyncio.wait_for(client.read(f"{addr} {camel} {oinst} units"), timeout=4)
+                    units = str(u) if u is not None else ""
+                except Exception:  # noqa: BLE001
+                    pass
+            points.append(DiscoveredPoint(
+                object_name=name,
+                object_type=camel,
+                object_instance=int(oinst),
+                units=units,
+                present_value=present_value,
+                address=f"{camel}:{oinst}",
             ))
-        return out
+        return points

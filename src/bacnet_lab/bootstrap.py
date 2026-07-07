@@ -9,6 +9,7 @@ from bacnet_lab.adapters.bacnet.device_factory import (
     scale_devices,
 )
 from bacnet_lab.adapters.bacnet.engine import BAC0Engine
+from bacnet_lab.adapters.bacnet.real_poller import RealBACnetPoller
 from bacnet_lab.adapters.event_bus.in_process import InProcessEventPublisher
 from bacnet_lab.adapters.persistence.migrations import run_migrations
 from bacnet_lab.adapters.persistence.sqlite_repos import (
@@ -78,6 +79,7 @@ class Container:
     alarm_repo: SqliteAlarmRepository
     engine: BAC0Engine
     event_publisher: InProcessEventPublisher
+    real_poller: RealBACnetPoller
     knx_engine: object = None  # KnxEngine instance when KNX enabled, else None
     discovery_service: object = None  # DiscoveryService (per-protocol live discovery)
 
@@ -85,6 +87,18 @@ class Container:
 async def create_container(settings: AppSettings) -> Container:
     # Run DB migrations
     await run_migrations(settings.db_path)
+
+    # Real-device client mode: we poll physical controllers as a BACnet client.
+    # Many controllers reply only to source UDP 47808, so the poller must bind
+    # it. Move the simulator's exposed-device port range out of the way so the
+    # poller and the sim engine never fight over the same socket.
+    if settings.real.enabled and settings.real.bind_port == settings.bacnet.port_start:
+        shifted = settings.bacnet.port_start + 1000
+        logger.info(
+            "Real poller owns UDP %d; shifting simulator BACnet port_start %d -> %d",
+            settings.real.bind_port, settings.bacnet.port_start, shifted,
+        )
+        settings.bacnet.port_start = shifted
 
     # Adapters
     engine = BAC0Engine(ip=settings.bacnet.ip)
@@ -197,13 +211,28 @@ async def create_container(settings: AppSettings) -> Container:
         settings=settings.timescale,
     )
 
-    # Live per-protocol device discovery (BACnet Who-Is, Modbus scan, MQTT
+    # Real BACnet device poller (client): reads physical controllers listed in
+    # settings.real.config_path and ingests their live values through the same
+    # event -> historian -> API pipeline. No-op unless settings.real.enabled.
+    # Constructed before discovery so the BACnet discovery adapter can share its
+    # single UDP-47808 client (these controllers reply only to source port 47808,
+    # so poller and discovery must not fight over that socket).
+    real_poller = RealBACnetPoller(
+        device_service=device_service,
+        tsdb=tsdb,
+        event_publisher=event_publisher,
+        settings=settings.real,
+    )
+
+    # Live per-protocol device discovery (BACnet subnet sweep, Modbus scan, MQTT
     # sweep, KNX ETS/gateway). Each adapter is registered best-effort so a
-    # missing optional dependency never breaks boot.
+    # missing optional dependency never breaks boot. The BACnet adapter shares
+    # the real poller's client and onboards added devices into its poll loop.
     from bacnet_lab.application.discovery_service import DiscoveryService
-    discovery_service = DiscoveryService(device_service=device_service, tsdb=tsdb)
+    discovery_service = DiscoveryService(
+        device_service=device_service, tsdb=tsdb, real_poller=real_poller)
     for _import_path, _ctor in (
-        ("bacnet_lab.adapters.bacnet.discovery", lambda m: m.BACnetDiscovery(local_ip=settings.bacnet.ip)),
+        ("bacnet_lab.adapters.bacnet.discovery", lambda m: m.BACnetDiscovery(local_ip=settings.bacnet.ip, poller=real_poller)),
         ("bacnet_lab.adapters.modbus.discovery", lambda m: m.ModbusDiscovery()),
         ("bacnet_lab.adapters.mqtt.discovery", lambda m: m.MqttDiscovery()),
         ("bacnet_lab.adapters.knx.discovery", lambda m: m.KnxDiscovery()),
@@ -290,6 +319,7 @@ async def create_container(settings: AppSettings) -> Container:
         alarm_repo=alarm_repo,
         engine=engine,
         event_publisher=event_publisher,
+        real_poller=real_poller,
         knx_engine=knx_engine,
         discovery_service=discovery_service,
     )

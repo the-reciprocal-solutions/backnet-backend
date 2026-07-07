@@ -22,7 +22,7 @@
 #       noise: { type: gaussian, sigma: 0.2 }
 #       bounds: [10, 40]
 
-enabled: true
+enabled: false
 autostart: true
 tick_hz: 1.0
 speed: 1.0

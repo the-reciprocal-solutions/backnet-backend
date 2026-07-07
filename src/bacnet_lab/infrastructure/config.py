@@ -115,6 +115,17 @@ class KnxSettings:
 
 
 @dataclass
+class RealDevicesSettings:
+    enabled: bool = False
+    bind_ip: str = "0.0.0.0"        # 0.0.0.0 = auto-detect egress interface
+    bind_port: int = 47808          # local UDP bind; many controllers reply ONLY to source port 47808
+    cidr: int = 24                  # subnet prefix bits of bind_ip (use 23 for a /23 net)
+    poll_interval_s: float = 10.0   # seconds between read cycles
+    config_path: str = "config/real_devices.yaml"  # device list
+    max_points_per_device: int = 200  # cap objectList per device (0 = no cap)
+
+
+@dataclass
 class AppSettings:
     http: HttpSettings = field(default_factory=HttpSettings)
     bacnet: BacnetSettings = field(default_factory=BacnetSettings)
@@ -127,6 +138,7 @@ class AppSettings:
     llm: LLMSettings = field(default_factory=LLMSettings)
     mqtt: MqttSettings = field(default_factory=MqttSettings)
     knx: KnxSettings = field(default_factory=KnxSettings)
+    real: RealDevicesSettings = field(default_factory=RealDevicesSettings)
     db_path: str = "bacnet_lab.db"
     log_level: str = "INFO"
     devices_dir: str = "config/devices"
@@ -164,6 +176,8 @@ def load_settings(config_path: str = "config/settings.yaml") -> AppSettings:
             settings.mqtt = MqttSettings(**data["mqtt"])
         if "knx" in data:
             settings.knx = KnxSettings(**data["knx"])
+        if "real" in data:
+            settings.real = RealDevicesSettings(**data["real"])
 
     import os
 
@@ -248,5 +262,15 @@ def load_settings(config_path: str = "config/settings.yaml") -> AppSettings:
     knx.enabled = _bool("BACNET_LAB_KNX_ENABLED", knx.enabled)
     knx.gateway_ip = os.getenv("BACNET_LAB_KNX_GATEWAY_IP", knx.gateway_ip)
     knx.gateway_port = int(os.getenv("BACNET_LAB_KNX_GATEWAY_PORT", str(knx.gateway_port)))
+
+    real = settings.real
+    real.enabled = _bool("BACNET_LAB_REAL_ENABLED", real.enabled)
+    real.bind_ip = os.getenv("BACNET_LAB_REAL_BIND_IP", real.bind_ip)
+    real.bind_port = int(os.getenv("BACNET_LAB_REAL_BIND_PORT", str(real.bind_port)))
+    real.cidr = int(os.getenv("BACNET_LAB_REAL_CIDR", str(real.cidr)))
+    real.poll_interval_s = float(os.getenv("BACNET_LAB_REAL_POLL_INTERVAL_S", str(real.poll_interval_s)))
+    real.config_path = os.getenv("BACNET_LAB_REAL_CONFIG", real.config_path)
+    real.max_points_per_device = int(
+        os.getenv("BACNET_LAB_REAL_MAX_POINTS", str(real.max_points_per_device)))
 
     return settings

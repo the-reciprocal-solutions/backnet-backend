@@ -1,0 +1,22 @@
+# Real BACnet/IP devices polled by the RealBACnetPoller (read-only client).
+# Each entry is one physical controller. `points` optional: omit to auto-discover
+# the device's objectList on connect. Enumerated live via wildcard device read
+# (these controllers answer ReadProperty but NOT Who-Is, so broadcast discovery
+# finds nothing — they must be listed by IP here).
+devices:
+  # --- primary DDC block (192.168.20.211-.223) ---
+  - {device_id: 1101, name: DDC1, ip: 192.168.20.211, port: 47808}
+  - {device_id: 1102, name: DDC2, ip: 192.168.20.212, port: 47808}
+  - {device_id: 1232, name: DDC3, ip: 192.168.20.213, port: 47808}
+  - {device_id: 1227, name: DDC4, ip: 192.168.20.214, port: 47808}
+  - {device_id: 1105, name: DDC5, ip: 192.168.20.215, port: 47808}
+  - {device_id: 1108, name: DDC8, ip: 192.168.20.218, port: 47808}
+  - {device_id: 1113, name: DDC13, ip: 192.168.20.223, port: 47808}
+  # --- second block (192.168.20.231-.235) — different device IDs/labels ---
+  - {device_id: 20231, name: DDC-3, ip: 192.168.20.231, port: 47808}
+  - {device_id: 20232, name: DDC-9_10, ip: 192.168.20.232, port: 47808}
+  - {device_id: 20233, name: DDC-5, ip: 192.168.20.233, port: 47808}
+  - {device_id: 20234, name: DDC-13, ip: 192.168.20.234, port: 47808}
+  - {device_id: 20235, name: DDC6_303_TERRACE, ip: 192.168.20.235, port: 47808}
+  # --- Niagara / FIN supervisor (not a DDC; large object list, capped) ---
+  - {device_id: 2972162, name: FIN_Connector, ip: 192.168.21.64, port: 47808}

@@ -35,6 +35,8 @@ async def main() -> None:
 
     await container.historian_service.start()
 
+    await container.real_poller.start()
+
     if settings.timescale.enabled:
         await container.forecast_service.start()
         logger.info("Forecast service started")
@@ -85,6 +87,7 @@ async def shutdown(server: uvicorn.Server, container: object) -> None:
     await container.copilot_service.stop()
     await container.forecast_scheduler.stop()
     await container.forecast_service.stop()
+    await container.real_poller.stop()
     await container.historian_service.stop()
     await container.simulation_engine.stop()
     await container.telemetry_service.stop()
